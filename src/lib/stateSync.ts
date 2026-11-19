@@ -29,6 +29,18 @@
  */
 
 const PREFIX = "puzzle_trainer_";
+/**
+ * Keys that look like state but must NEVER sync.
+ *
+ * `puzzle_trainer_sync` is the test/debug opt-out. If it were uploaded, every
+ * other device would adopt `"off"` and cross-device sync would silently stop
+ * working everywhere — including on the machine serving it. Bookkeeping keys
+ * (`__sync_clock`, the reload flag) are excluded for the same reason.
+ */
+const NEVER_SYNC = new Set([
+  "puzzle_trainer_sync",
+  "puzzle_trainer_sync_reloaded",
+]);
 /** Local clock per key, so we can tell whether ours or the server's is newer. */
 const CLOCK_KEY = "__sync_clock";
 /** Set for the lifetime of one page load to stop reload loops. */
@@ -59,9 +71,14 @@ let installed = false;
 let pendingPush: ReturnType<typeof setTimeout> | null = null;
 const dirty = new Set<string>();
 
-/** Keys we own. Excludes our own bookkeeping. */
+/** Keys we own. Excludes our own bookkeeping and never-sync keys. */
 function isStateKey(k: string): boolean {
-  return typeof k === "string" && k.startsWith(PREFIX) && !k.endsWith(CLOCK_KEY);
+  return (
+    typeof k === "string" &&
+    k.startsWith(PREFIX) &&
+    !k.endsWith(CLOCK_KEY) &&
+    !NEVER_SYNC.has(k)
+  );
 }
 
 function readClock(): Record<string, number> {
@@ -82,6 +99,32 @@ function writeClock(clock: Record<string, number>): void {
   }
 }
 
+/**
+ * Does this stored value carry no user data? (`[]`, `{}`, `""`, `null`)
+ *
+ * Needed because a FRESH device initialises defaults on mount — an empty pins
+ * array, an empty prefs object — and stamps them with the CURRENT time. That
+ * makes the blank copy look "newer" than real data on the server, so it wins and
+ * WIPES it. This is how a second browser ended up showing no pins at all.
+ *
+ * Rule: an empty value never beats a populated one, whatever the timestamps say.
+ * The cost is that clearing every pin does not propagate as a clear; the local
+ * device can still clear them without syncing. Losing real data is far worse.
+ */
+function isEmptyValue(v: string | null | undefined): boolean {
+  if (v === null || v === undefined) return true;
+  const t = v.trim();
+  if (t === "" || t === "[]" || t === "{}" || t === '""' || t === "null") return true;
+  try {
+    const parsed = JSON.parse(t);
+    if (Array.isArray(parsed)) return parsed.length === 0;
+    if (parsed && typeof parsed === "object") return Object.keys(parsed).length === 0;
+  } catch {
+    /* not JSON — treat as real content */
+  }
+  return false;
+}
+
 /** Every owned key with the timestamp we last wrote it. */
 function collectLocal(): Record<string, { v: string; t: number }> {
   const clock = readClock();
@@ -99,19 +142,52 @@ function collectLocal(): Record<string, { v: string; t: number }> {
 async function push(keys?: string[]): Promise<void> {
   try {
     const all = collectLocal();
-    const subset: Record<string, { v: string; t: number }> = {};
     const list = keys ?? Object.keys(all);
-    for (const k of list) if (all[k]) subset[k] = all[k];
-    if (Object.keys(subset).length === 0) return;
+    const entries = list.filter((k) => all[k]).map((k) => [k, all[k]] as const);
+    if (entries.length === 0) return;
 
-    await fetch("/api/state", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(subset),
-      keepalive: true,
-    });
-  } catch {
-    /* offline or endpoint missing — the local copy is still correct */
+    /**
+     * Batch the payload so no single request exceeds the keepalive body cap.
+     *
+     * `fetch(..., { keepalive: true })` is capped at ~64 KiB. A real profile's
+     * payload blows past that fast — 109 attempts alone is ~43 KB, and the whole
+     * set was 69,721 bytes — at which point the BROWSER rejects the request before
+     * it is ever sent. Because this function swallows errors, sync then failed
+     * completely silently: the user's history simply never synced, with nothing to
+     * see in the UI. Batching keeps every request comfortably under the cap.
+     */
+    const MAX_BYTES = 55_000;
+    let batch: Record<string, { v: string; t: number }> = {};
+    let size = 2; // "{}"
+
+    const flush = async (): Promise<void> => {
+      if (Object.keys(batch).length === 0) return;
+      const body = JSON.stringify(batch);
+      const res = await fetch("/api/state", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body,
+        // Only ask for keepalive when it is actually allowed.
+        keepalive: body.length < 60_000,
+      });
+      if (!res.ok) {
+        console.warn("[stateSync] push rejected:", res.status, body.length, "bytes");
+      }
+      batch = {};
+      size = 2;
+    };
+
+    for (const [k, val] of entries) {
+      const cost = JSON.stringify(k).length + JSON.stringify(val).length + 2;
+      if (size + cost > MAX_BYTES) await flush();
+      batch[k] = val;
+      size += cost;
+    }
+    await flush();
+  } catch (err) {
+    // Offline or endpoint missing — the local copy is still correct. Warn rather
+    // than swallow so this is visible in DevTools instead of failing invisibly.
+    console.warn("[stateSync] push failed:", err);
   }
 }
 
@@ -177,7 +253,13 @@ export async function pullState(): Promise<boolean> {
     const localT = clock[key] ?? 0;
     const localV = localStorage.getItem(key);
 
-    if (remoteT > localT && entry.v !== localV) {
+    // The server wins on a newer stamp — OR whenever our copy is empty and
+    // theirs is not. A fresh device initialising blank defaults must never
+    // overwrite real data with them (see isEmptyValue).
+    const remoteWins =
+      remoteT > localT || (isEmptyValue(localV) && !isEmptyValue(entry.v));
+
+    if (remoteWins && entry.v !== localV) {
       // Server is newer: adopt it. Write through the ORIGINAL setItem so we do
       // not immediately echo this back as a local edit.
       Storage.prototype.setItem.call(localStorage, key, entry.v);
@@ -190,6 +272,29 @@ export async function pullState(): Promise<boolean> {
   }
 
   writeClock(clock);
+
+  // ---- Upload keys the server has NEVER seen -----------------------------
+  // The loop above only reconciles keys the SERVER already knows about (it
+  // iterates `remote`). Anything written before sync existed — pins you set last
+  // week, your entire attempt history — therefore stays on its original device
+  // forever, and a new browser silently shows none of it. That is exactly the
+  // "my pins and game history did not save on another browser" report: the server
+  // had only ever learned about progress_v2, because that was written AFTER sync
+  // was added.
+  //
+  // A local key with NO clock entry is one the wrapper never saw, i.e. it
+  // predates sync — stamp it now so it can propagate, and mark it dirty.
+  const localAll = collectLocal();
+  for (const k of Object.keys(localAll)) {
+    const knownToServer = Object.prototype.hasOwnProperty.call(remote, k);
+    const stamped = clock[k];
+    if (!knownToServer || stamped === undefined) {
+      clock[k] = Date.now();
+      dirty.add(k);
+    }
+  }
+  writeClock(clock);
+
   if (dirty.size > 0) schedulePush();
   return changed;
 }

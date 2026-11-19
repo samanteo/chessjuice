@@ -65,6 +65,28 @@ async function writeStore(store: Store): Promise<void> {
 
 const isAllowed = (k: string) => typeof k === "string" && k.startsWith(ALLOWED_PREFIX);
 
+/**
+ * Serialize the read-modify-write in PUT.
+ *
+ * `writeStore` persists the ENTIRE store, so two PUTs in flight both read the
+ * same snapshot and the later write ERASES the earlier one's keys. That is not
+ * theoretical: a real client fires the batched push AND its own debounced push
+ * close together, and keys went missing (progress_v2 and theme_agg_v1 vanished
+ * while the other seven landed). Chaining every mutation through one promise
+ * makes each PUT atomic with respect to the others — which is all a single-process
+ * Next server needs.
+ */
+let writeChain: Promise<unknown> = Promise.resolve();
+function withStoreLock<T>(fn: () => Promise<T>): Promise<T> {
+  const run = writeChain.then(fn, fn);
+  // Keep the chain alive even if this link rejects.
+  writeChain = run.then(
+    () => undefined,
+    () => undefined
+  );
+  return run;
+}
+
 /** GET /api/state -> every known key with its timestamp. */
 export async function GET() {
   const store = await readStore();
@@ -96,37 +118,42 @@ export async function PUT(req: Request) {
   }
 
   const incoming = body as Record<string, unknown>;
-  const store = await readStore();
-  let applied = 0;
-  let rejected = 0;
 
-  for (const [key, val] of Object.entries(incoming)) {
-    if (!isAllowed(key)) {
-      rejected++;
-      continue;
-    }
-    const e = val as Partial<Entry>;
-    if (!e || typeof e.v !== "string" || typeof e.t !== "number") {
-      rejected++;
-      continue;
-    }
-    const existing = store[key];
-    if (existing && existing.t >= e.t) {
-      // Server copy is the same age or newer — keep it. The client will pick the
-      // server's value up on its next pull.
-      rejected++;
-      continue;
-    }
-    store[key] = { v: e.v, t: e.t };
-    applied++;
-  }
+  // Every mutation goes through the lock so concurrent PUTs cannot erase each
+  // other's keys (see withStoreLock).
+  return withStoreLock(async () => {
+    const store = await readStore();
+    let applied = 0;
+    let rejected = 0;
 
-  if (applied > 0) await writeStore(store);
+    for (const [key, val] of Object.entries(incoming)) {
+      if (!isAllowed(key)) {
+        rejected++;
+        continue;
+      }
+      const e = val as Partial<Entry>;
+      if (!e || typeof e.v !== "string" || typeof e.t !== "number") {
+        rejected++;
+        continue;
+      }
+      const existing = store[key];
+      if (existing && existing.t >= e.t) {
+        // Server copy is the same age or newer — keep it. The client will pick the
+        // server's value up on its next pull.
+        rejected++;
+        continue;
+      }
+      store[key] = { v: e.v, t: e.t };
+      applied++;
+    }
 
-  return NextResponse.json(
-    { ok: true, applied, rejected, state: store },
-    { headers: { "Cache-Control": "no-store" } }
-  );
+    if (applied > 0) await writeStore(store);
+
+    return NextResponse.json(
+      { ok: true, applied, rejected, state: store },
+      { headers: { "Cache-Control": "no-store" } }
+    );
+  });
 }
 
 /**
