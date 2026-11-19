@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.sam.puzzletrainer</string>
+
+    <!--
+      Run the production server, not `next dev`.
+
+      `next dev` recompiles on request, which shows up as a pause mid-puzzle and
+      is not meant to be left running. This calls the next binary directly rather
+      than via npm, so there is no shell/PATH to go wrong.
+
+      NODE IS PINNED TO AN ABSOLUTE PATH because launchd starts with a minimal
+      PATH and cannot find `node` on its own.
+    -->
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/sam/.hermes/node/bin/node</string>
+        <string>/Users/sam/puzzle-trainer/node_modules/next/dist/bin/next</string>
+        <string>start</string>
+        <string>-p</string>
+        <string>3000</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/sam/puzzle-trainer</string>
+
+    <!-- Start on login and keep it up without anyone asking. -->
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <!-- If it crash-loops, wait between attempts instead of spinning. -->
+    <key>ThrottleInterval</key>
+    <integer>10</integer>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>NODE_ENV</key>
+        <string>production</string>
+        <key>PATH</key>
+        <string>/Users/sam/.hermes/node/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    </dict>
+
+    <!-- Logs, so a failure is diagnosable instead of silent. -->
+    <key>StandardOutPath</key>
+    <string>/tmp/puzzle-trainer-server.log</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/puzzle-trainer-server.err.log</string>
+</dict>
+</plist>
