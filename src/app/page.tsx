@@ -7,6 +7,7 @@ import { SessionStrip } from "@/components/SessionStrip";
 import { ThemeFilter } from "@/components/ThemeFilter";
 import { ThemeSelector } from "@/components/theme/ThemeSelector";
 import { ThemeProvider, useTheme } from "@/components/theme/ThemeProvider";
+import { PUZZLE_TIMER_OPTIONS } from "@/components/theme/themeConfig";
 import { usePuzzleStore, getBaseOpening } from "@/hooks/usePuzzleStore";
 import { usePinnedThemes } from "@/hooks/usePinnedThemes";
 import { PuzzleBoard } from "@/components/PuzzleBoard";
@@ -137,7 +138,7 @@ function PuzzleDashboardPageInner() {
   }, []);
 
   // Pinned ("quick pin") themes — persisted to localStorage.
-  const { pinned, pin, pinMany, unpin, toggle, clear: unpinAll } = usePinnedThemes();
+  const { pinned, pin, pinMany, unpin, toggle, clear: unpinAll, reorder } = usePinnedThemes();
   const [showPicker, setShowPicker] = useState(false);
 
   // Apply theme filter from settings
@@ -559,6 +560,23 @@ function PuzzleDashboardPageInner() {
     dispenseThemed([], difficulty, "review");
   }, [dispenseThemed, difficulty]);
 
+  /**
+   * Leave for a PRISTINE Training tab.
+   *
+   * This is what "Go to Training" must mean. Previously it only ran
+   * `setActiveTab("training")`, but `selectedPuzzle` was still set from whatever
+   * had just been reviewed — so Training rendered that leftover puzzle and looked
+   * like it had launched a random one. Landing on Training must match a fresh
+   * load: no puzzle, no active theme, just the pinned-theme grid.
+   */
+  const goToTraining = useCallback(() => {
+    setSelectedPuzzle(null);
+    setActiveTheme(null);
+    setBoardContext("training");
+    setSessionActive(-1);
+    setActiveTab("training");
+  }, []);
+
   const handleBoardNext = useCallback(
     (context: "training" | "review" | "allthemes") => {
       if (practiceRef.current) {
@@ -720,6 +738,49 @@ function PuzzleDashboardPageInner() {
         </p>
       </section>
 
+      {/* Puzzle time — second item, right after Quick start. This is the
+          per-puzzle countdown; when it runs out the puzzle is auto-failed
+          exactly like a wrong answer. The control used to live only on the
+          Appearance/theme page, so it was hard to find from Settings. */}
+      <section
+        className="bg-white dark:bg-[#262421] rounded-xl p-5 shadow-sm border border-gray-200 dark:border-white/5"
+        data-testid="settings-puzzle-time"
+      >
+        <h2 className="text-lg font-bold text-gray-900 dark:text-[#e5e0d8] mb-1">Puzzle time</h2>
+        <p className="text-sm text-gray-500 dark:text-[#8b8987] mb-4">
+          Optional countdown while a puzzle is unsolved. Running out counts as a wrong
+          answer — the puzzle drops to today&apos;s deck and into your mistakes.
+        </p>
+        <div className="flex flex-wrap items-center gap-2" data-testid="settings-puzzle-time-options">
+          {PUZZLE_TIMER_OPTIONS.map((opt) => {
+            const on = (theme.puzzleTimerSeconds || 0) === opt.value;
+            return (
+              <button
+                key={opt.value}
+                type="button"
+                data-testid={`settings-puzzle-time-${opt.value}`}
+                data-on={on ? "1" : "0"}
+                aria-pressed={on}
+                onClick={() => theme.setPuzzleTimerSeconds(opt.value)}
+                className={
+                  "min-w-[4.5rem] px-4 py-2 rounded-lg text-sm font-semibold border transition-colors " +
+                  (on
+                    ? "bg-[#d59020] text-[#1b1a17] border-transparent"
+                    : "bg-white dark:bg-white/5 text-gray-700 dark:text-[#e5e0d8] border-gray-300 dark:border-white/10 hover:bg-gray-50 dark:hover:bg-white/10")
+                }
+              >
+                {opt.label}
+              </button>
+            );
+          })}
+        </div>
+        <p className="text-xs text-gray-400 dark:text-[#6b6a68] mt-3">
+          {(theme.puzzleTimerSeconds || 0) === 0
+            ? "Off — take as long as you like."
+            : `A puzzle auto-fails after ${PUZZLE_TIMER_OPTIONS.find(o => o.value === theme.puzzleTimerSeconds)?.label ?? theme.puzzleTimerSeconds}.`}
+        </p>
+      </section>
+
       {/* Sound */}
       <section
         className="bg-white dark:bg-[#262421] rounded-xl p-5 shadow-sm border border-gray-200 dark:border-white/5"
@@ -870,7 +931,7 @@ function PuzzleDashboardPageInner() {
             </p>
             <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
               <button
-                onClick={() => setActiveTab("training")}
+                onClick={goToTraining}
                 className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium"
               >
                 🎯 Go to Training
@@ -990,6 +1051,7 @@ function PuzzleDashboardPageInner() {
             unpin={unpin}
             onOpenPicker={() => setShowPicker(true)}
             onGoToAllThemes={() => setActiveTab("allthemes")}
+            onReorder={reorder}
             quickRun={quickRun}
             activeTheme={activeTheme}
             onQuickStart={startQuickRun}
@@ -1134,6 +1196,7 @@ function TrainingTab({
   onQuickStart,
   onQuickStartStop,
   onStartDueReview,
+  onReorder,
 }: any) {
   // Start training on a specific theme — dispenses a NEW puzzle and renders
   // the board INSIDE the Training tab (stays put; no bounce to Mistakes).
@@ -1237,6 +1300,7 @@ function TrainingTab({
         onUnpin={unpin}
         onOpenPicker={onOpenPicker}
         onGoToAllThemes={onGoToAllThemes}
+        onReorder={onReorder}
       />
 
       {/* Quick Actions */}

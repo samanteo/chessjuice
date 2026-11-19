@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { Inter } from "next/font/google";
+import { StateSyncInit } from "@/components/StateSyncInit";
 import "@lichess-org/chessground/assets/chessground.base.css";
 import "./globals.css";
 
@@ -31,7 +32,10 @@ export default function RootLayout({
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
       </head>
-      <body className={`${inter.className} ${inter.variable}`}>{children}</body>
+      <body className={`${inter.className} ${inter.variable}`}>
+        <StateSyncInit />
+        {children}
+      </body>
     </html>
   );
 }

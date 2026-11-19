@@ -295,6 +295,21 @@ body {
 .pill-warn    { background: var(--warn-tint); color: var(--warn); }
 .pill-danger  { background: var(--danger-tint); color: var(--danger); }
 .pill-info    { background: var(--info-tint); color: var(--info); }
+/* Your own rating, next to the puzzle's — deliberately the same green family as
+   the app's primary accent so it reads as "you" rather than "the puzzle". */
+.pill-you {
+  background: rgba(98, 153, 36, 0.14);
+  color: #4d7a1c;
+  border-color: rgba(98, 153, 36, 0.3);
+  font-weight: 600;
+}
+@media (prefers-color-scheme: dark) {
+  .pill-you {
+    background: rgba(139, 191, 74, 0.16);
+    color: #8bbf4a;
+    border-color: rgba(139, 191, 74, 0.32);
+  }
+}
 
 .theme-filter .theme-chip {
   display: inline-flex;
@@ -584,9 +599,64 @@ body {
 }
 .board-panel__actions {
   display: flex;
+  align-items: flex-end;          /* secondary controls sit on the bottom line */
+  justify-content: space-between;
+  gap: 0.5rem;
+  flex-wrap: nowrap;
+}
+/* Secondary controls (Solution) — left, compact. */
+.board-actions__secondary {
+  display: flex;
   align-items: center;
   gap: 0.5rem;
-  flex-wrap: wrap;
+  min-width: 0;
+}
+/* Primary column — the most-used button on TOP, Hard beneath it. Both full
+   width so they are easy thumb targets on a phone. */
+.board-actions__primary {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  flex: 0 1 200px;
+  min-width: 140px;
+}
+.board-actions__primary > button {
+  width: 100%;
+  justify-content: center;
+  text-align: center;
+  /* Compact: this column is two rows tall, so trim each button's vertical
+     padding to give the height back to the board (the board is height-limited
+     on desktop, so every px here comes straight out of the playing surface). */
+  padding-top: 0.4rem;
+  padding-bottom: 0.4rem;
+  min-height: 0;
+}
+/* Tighten the whole foot while a puzzle is on the board. */
+.board-panel__foot { padding-top: 0.4rem; padding-bottom: 0.4rem; }
+/* On a wide viewport the head has horizontal room, so put the theme, puzzle id
+   and the meta pills on ONE row instead of three. The board is height-limited,
+   so every row saved here goes straight into the playing surface — which is what
+   pays for the two-row Next/Hard button column. */
+@media (min-width: 900px) {
+  .board-panel__head {
+    padding-top: 0.4rem;
+    padding-bottom: 0.4rem;
+  }
+  .board-panel__titles {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.5rem 0.85rem;
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+  .board-panel__title { margin: 0; }
+  .board-panel__meta { margin-top: 0; }
+}
+
+@media (max-width: 480px) {
+  .board-actions__primary { flex: 1 1 auto; min-width: 0; }
+  .board-actions__secondary { flex: 0 0 auto; }
 }
 .board-panel__progress {
   display: flex;
@@ -736,6 +806,56 @@ body {
    coord-light / coord-dark by the square beneath it). */
 .cg-wrap coords coord.coord-light { color: var(--cg-dark, #769656); }
 .cg-wrap coords coord.coord-dark  { color: var(--cg-light, #eeeed2); }
+
+/* ---------------------------------------------------------------------------
+   COORDINATES, V2 — readable on a phone-sized board.
+   ---------------------------------------------------------------------------
+   The v1 rules above put each label in the corner of its own square (where
+   chessground's base CSS expects them) at 11px and opacity 0.62, coloured to
+   MATCH the square underneath. On a full-bleed phone board each square is only
+   ~48px, so the labels were effectively invisible — the rank numbers in
+   particular could not be seen at all.
+
+   Deliberately NOT moved into a gutter beside the board: that would have cost
+   ~36px of board width and undo the edge-to-edge sizing. Instead the labels stay
+   in the corner of the edge squares, but now:
+     - sit ABOVE the pieces (z-index 3; pieces are 2), so a piece on the corner
+       square can never hide them
+     - use a solid high-contrast colour plus a soft halo, so they read on any
+       square colour and on every board palette
+   --------------------------------------------------------------------------- */
+.cg-wrap coords {
+  z-index: 3;                     /* above the pieces (z = 2) */
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+  opacity: 1;
+  letter-spacing: 0.02em;
+}
+
+/* One solid colour for every label + a halo that matches the panel surface, so
+   the same rule works on light and dark squares alike. */
+.cg-wrap coords coord,
+.cg-wrap coords coord.coord-light,
+.cg-wrap coords coord.coord-dark {
+  color: var(--text, #1f2937);
+  text-shadow:
+    0 0 2px var(--surface, #fff),
+    0 0 2px var(--surface, #fff),
+    0 0 3px var(--surface, #fff);
+}
+
+@media (prefers-color-scheme: dark) {
+  .cg-wrap coords coord,
+  .cg-wrap coords coord.coord-light,
+  .cg-wrap coords coord.coord-dark {
+    color: #f3f4f6;
+    text-shadow:
+      0 0 2px rgba(0, 0, 0, 0.85),
+      0 0 2px rgba(0, 0, 0, 0.85),
+      0 0 3px rgba(0, 0, 0, 0.85);
+  }
+}
 
 /* Interactive square highlights */
 .cg-wrap cg-board square.move-dest {

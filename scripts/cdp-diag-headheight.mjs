@@ -1,0 +1,40 @@
+import { WebSocket } from "ws";
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const list = await (await fetch("http://localhost:9245/json/list")).json();
+const p = list.find((t) => t.type === "page");
+const ws = new WebSocket(p.webSocketDebuggerUrl, { perMessageDeflate: false, maxPayload: 2 ** 28 });
+await new Promise((r) => ws.once("open", r));
+let id = 0; const pending = new Map();
+ws.on("message", (raw) => { const m = JSON.parse(raw.toString()); if (m.id && pending.has(m.id)) { pending.get(m.id)(m); pending.delete(m.id); } });
+const send = (m, params = {}) => new Promise((res) => { const i = ++id; pending.set(i, res); ws.send(JSON.stringify({ id: i, method: m, params })); });
+const ev = async (e) => (await send("Runtime.evaluate", { expression: e, returnByValue: true, awaitPromise: true })).result?.result?.value;
+await send("Runtime.enable"); await send("Page.enable");
+await send("Emulation.setDeviceMetricsOverride", { width: 1408, height: 881, deviceScaleFactor: 1, mobile: false });
+await send("Page.navigate", { url: "http://localhost:3000/?cb=" + Date.now() });
+await sleep(13000);
+await ev(`localStorage.clear()`);
+await ev(`localStorage.setItem('puzzle_trainer_sync','off')`);
+await ev(`localStorage.setItem('puzzle_trainer_pinned_themes', JSON.stringify(["fork"]))`);
+await send("Page.navigate", { url: "http://localhost:3000/?cb=" + Date.now() });
+await sleep(16000);
+await ev(`document.querySelector('[data-testid="quickstart-button"]').click()`);
+await sleep(9000);
+const r = await ev(`(() => {
+  const H = (s) => { const e = document.querySelector(s); if(!e) return null; const b = e.getBoundingClientRect(); return Math.round(b.height); };
+  const meta = document.querySelector('.board-panel__meta');
+  const metaRows = meta ? Math.round(meta.getBoundingClientRect().height / (parseFloat(getComputedStyle(meta).lineHeight)||20)) : null;
+  return {
+    frame: H('.board-frame'),
+    head: H('.board-panel__head'),
+    meta: H('.board-panel__meta'),
+    stage: H('.board-stage'),
+    foot: H('.board-panel__foot'),
+    actions: H('.board-panel__actions'),
+    progress: H('.board-panel__progress'),
+    nav: H('[data-testid="move-nav"]'),
+    board: H('.cg-wrap cg-board'),
+    metaWrapH: meta ? Math.round(meta.getBoundingClientRect().height) : null,
+  };
+})()`);
+console.log(JSON.stringify(r, null, 1));
+ws.close();

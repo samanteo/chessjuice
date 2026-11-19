@@ -607,6 +607,12 @@ export function PuzzleBoard({
             <span className="pill pill-neutral">
               Rating&nbsp;<span className="tabular">{puzzle.rating}</span>
             </span>
+            {/* YOUR rating, so it is visible while solving on Training, All themes
+                and Review alike — previously only the puzzle's rating showed, and
+                your own was only on the tab header (which the board replaces). */}
+            <span className="pill pill-you" data-testid="user-rating">
+              You&nbsp;<span className="tabular">{userRating}</span>
+            </span>
             <span className="pill pill-accent">
               {solverColor === "white" ? "White" : "Black"} to move
             </span>
@@ -752,39 +758,43 @@ export function PuzzleBoard({
       {/* Foot / controls */}
       <div className="board-panel__foot">
         <div className="board-panel__actions">
-          <button onClick={handleSolution} disabled={status !== "playing"} className="btn-ghost">
-            Solution
-          </button>
-          <button
-            onClick={handleHard}
-            disabled={status !== "playing"}
-            className="btn-ghost"
-            data-testid="hard-button"
-            title="Not solid / lucky guess? Same as a wrong answer — sends this puzzle back into the mistakes deck."
-          >
-            😅 Hard
-          </button>
-          <div className="flex-1" />
-          {/* Next is available once the puzzle is RESOLVED — solved OR failed.
-              Before that it is a two-tap Skip, so a mis-tap cannot abandon an
-              unfinished puzzle. A failed puzzle keeps the full solution on the
-              board so it can be stepped through with ◀ ▶ before moving on. */}
-          {status === "correct" || status === "wrong" ? (
-            <button onClick={handleNext} className="btn-primary" data-testid="next-button">
-              Next puzzle
+          {/* Secondary actions stay on the left. */}
+          <div className="board-actions__secondary">
+            <button onClick={handleSolution} disabled={status !== "playing"} className="btn-ghost">
+              Solution
             </button>
-          ) : (
+          </div>
+
+          {/* Primary column: the button you press most often is on TOP, with Hard
+              directly beneath it — both full-width, so they are easy to hit with
+              a thumb on a phone. Order requested: Next above, Hard below. */}
+          <div className="board-actions__primary">
+            {status === "correct" || status === "wrong" ? (
+              <button onClick={handleNext} className="btn-primary" data-testid="next-button">
+                Next puzzle
+              </button>
+            ) : (
+              <button
+                onClick={handleSkip}
+                className={skipArmed ? "btn-primary" : "btn-ghost"}
+                data-testid="skip-button"
+                data-skip-armed={skipArmed ? "true" : "false"}
+                disabled={status !== "playing"}
+                title="Abandons this puzzle without recording it."
+              >
+                {skipArmed ? "Tap again to skip ↷" : "Skip puzzle"}
+              </button>
+            )}
             <button
-              onClick={handleSkip}
-              className={skipArmed ? "btn-primary" : "btn-ghost"}
-              data-testid="skip-button"
-              data-skip-armed={skipArmed ? "true" : "false"}
+              onClick={handleHard}
               disabled={status !== "playing"}
-              title="Abandons this puzzle without recording it."
+              className="btn-ghost"
+              data-testid="hard-button"
+              title="Not solid / lucky guess? Same as a wrong answer — sends this puzzle back into the mistakes deck."
             >
-              {skipArmed ? "Tap again to skip ↷" : "Skip puzzle"}
+              😅 Hard
             </button>
-          )}
+          </div>
         </div>
 
         {/* Progress */}

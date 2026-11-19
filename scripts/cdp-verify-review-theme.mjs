@@ -17,6 +17,10 @@ await send("Page.navigate", { url: "http://localhost:3000/?cb=" + Date.now() });
 await sleep(12000);
 await ev(`localStorage.clear()`);
 
+// Keep this test's clean-slate assumption: cross-device sync would otherwise
+// re-import server state from an earlier run and break assertions like
+// `attempts === 0` that have nothing to do with what is being tested.
+await ev(`localStorage.setItem('puzzle_trainer_sync','off');`);
 // Seed a due mistake carrying an opening, so the Review board has something.
 const pz = await (await fetch("http://localhost:3000/api/dispense?rating=1500&difficulty=normal&opening=sicilianDefense")).json();
 const puzzle = pz.puzzle;

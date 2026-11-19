@@ -23,6 +23,10 @@ await send("Emulation.setDeviceMetricsOverride", { width: 390, height: 844, devi
 await send("Page.navigate", { url: "http://localhost:3000/?cb=" + Date.now() });
 await sleep(12000);
 await ev(`localStorage.clear()`);
+// Keep this test's clean-slate assumption: cross-device sync would otherwise
+// re-import server state from an earlier run and break assertions like
+// `attempts === 0` that have nothing to do with what is being tested.
+await ev(`localStorage.setItem('puzzle_trainer_sync','off');`);
 await ev(`localStorage.setItem('puzzle_trainer_pinned_themes', JSON.stringify(["fork"]))`);
 await send("Page.navigate", { url: "http://localhost:3000/?cb=" + Date.now() });
 await sleep(16000);
