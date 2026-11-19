@@ -22,6 +22,31 @@ const FIRST_MOVE_DELAY_MS = 450;
 /** How long a mid-puzzle "skip" stays armed before it resets (two-tap guard). */
 const SKIP_CONFIRM_MS = 4000;
 
+/**
+ * Is the viewport wide enough for the session strip to share the button row?
+ *
+ * On a WIDE screen the strip fits comfortably between Solution and the Skip/Next
+ * column, and keeping it in that row costs no vertical space — which matters
+ * because the board is height-limited, so any extra row makes the board smaller
+ * (measured: 518px with the strip inline vs 469px with it on its own row).
+ *
+ * On a NARROW screen there is no room in that row, so the strip gets its own row
+ * above the buttons where it cannot collide with anything.
+ */
+function useIsWideScreen(): boolean {
+  const [wide, setWide] = useState(() =>
+    typeof window === "undefined" ? false : window.matchMedia("(min-width: 900px)").matches
+  );
+  useEffect(() => {
+    const mq = window.matchMedia("(min-width: 900px)");
+    const onChange = () => setWide(mq.matches);
+    onChange();
+    mq.addEventListener?.("change", onChange);
+    return () => mq.removeEventListener?.("change", onChange);
+  }, []);
+  return wide;
+}
+
 function formatClock(totalSeconds: number): string {
   const s = Math.max(0, Math.floor(totalSeconds));
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
@@ -81,6 +106,7 @@ export function PuzzleBoard({
   onReplayAt,
 }: PuzzleBoardProps) {
   const theme = useTheme();
+  const isWide = useIsWideScreen();
   const {
     animation,
     pieceAnimation,
@@ -768,6 +794,23 @@ export function PuzzleBoard({
 
       {/* Foot / controls */}
       <div className="board-panel__foot">
+        {/* Session progress chips.
+            Narrow screens: their OWN full-width row above the buttons. In the
+            middle of the action row there is no room, so the strip sat at a
+            different height from the buttons beside it and read as covering
+            "Skip puzzle".
+            Wide screens: inside the action row instead (see below), because an
+            extra row here would shrink the board — it is height-limited, and the
+            measurement was 518px inline vs 469px on its own row. */}
+        {!isWide && sessionEntries && sessionEntries.length > 0 && onReplayAt && (
+          <SessionStrip
+            entries={sessionEntries}
+            activeIndex={sessionActiveIndex ?? null}
+            themeLabel={sessionThemeLabel ?? null}
+            onReplayAt={onReplayAt}
+          />
+        )}
+
         <div className="board-panel__actions">
           {/* Secondary actions stay on the left. */}
           <div className="board-actions__secondary">
@@ -776,12 +819,15 @@ export function PuzzleBoard({
             </button>
           </div>
 
-          {/* Session progress chips — in the MIDDLE of the action row, i.e.
-              between the Solution button and the Skip/Next column. Below the
-              board they sat under the fold on a phone and wasted the space.
-              `flex: 1 1 auto` lets the strip absorb the leftover width without
-              pushing the primary column off-screen. */}
-          {sessionEntries && sessionEntries.length > 0 && onReplayAt && (
+          {/* Session progress chips live in their OWN row above (see the foot),
+              not squeezed into this row. In the middle of the action row they sat
+              at a different height from the buttons beside them, so the card read
+              as covering "Skip puzzle" — and on a narrower phone they would
+              genuinely overlap. */}
+
+          {/* Wide screens only: the strip shares this row, which costs no vertical
+              space and therefore keeps the board at full size. */}
+          {isWide && sessionEntries && sessionEntries.length > 0 && onReplayAt && (
             <div style={{ flex: "1 1 auto", minWidth: 0 }}>
               <SessionStrip
                 entries={sessionEntries}

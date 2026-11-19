@@ -63,7 +63,7 @@ console.log("after failing one:", JSON.stringify(scored));
 // training batch) — assert it there, in the middle of the action row.
 const t = await ev(`(() => {
   const strip = document.querySelector('[data-testid="session-strip"]');
-  const r = (e) => { if (!e) return null; const b = e.getBoundingClientRect(); return {x:Math.round(b.x),y:Math.round(b.y),w:Math.round(b.width),h:Math.round(b.height)}; };
+  const r = (e) => { if (!e) return null; const b = e.getBoundingClientRect(); return {x:Math.round(b.x),y:Math.round(b.y),w:Math.round(b.width),h:Math.round(b.height),bottom:Math.round(b.bottom)}; };
   const sol = [...document.querySelectorAll('button')].find(b=>/^Solution$/i.test(b.innerText.trim()));
   const skip = document.querySelector('[data-testid="next-button"]') || document.querySelector('[data-testid="skip-button"]');
   const cs = strip ? getComputedStyle(strip) : null;
@@ -72,8 +72,13 @@ const t = await ev(`(() => {
 })()`);
 console.log("training foot:", JSON.stringify(t));
 ok(t.strip !== null, "session strip renders inside the TRAINING board foot");
-ok(t.strip && t.sol && t.skip && t.strip.x > t.sol.x && t.strip.x < t.skip.x,
-   `strip sits BETWEEN Solution and Skip (sol x=${t.sol?.x} < strip x=${t.strip?.x} < skip x=${t.skip?.x})`);
+// The strip now lives on its OWN row ABOVE the button row on a narrow screen.
+// The user asked for exactly that: "maybe can be higher? make sure it does not
+// overlap with icons or buttons". So the assertion is that its bottom edge sits
+// above every button's top edge — not that it is horizontally between two of them.
+const firstButtonTop = Math.min(t.sol?.y ?? 1e9, t.skip?.y ?? 1e9, t.hard?.y ?? 1e9);
+ok(t.strip && t.strip.bottom <= firstButtonTop,
+   `strip is on its own row ABOVE the buttons (strip bottom ${t.strip?.bottom} <= first button top ${firstButtonTop})`);
 ok(!!t.stripBg && t.stripBg !== "rgba(0, 0, 0, 0)" && t.stripBg !== "transparent",
    `strip has a visible background, not the page colour (${t.stripBg})`);
 
@@ -93,7 +98,7 @@ const layout = await ev(`(() => {
   const aside = document.querySelector('aside');
   const board = document.querySelector('[data-board-context="review"]');
   const strip = document.querySelector('[data-testid="session-strip"]');
-  const r = (e) => { if (!e) return null; const b = e.getBoundingClientRect(); return {x:Math.round(b.x),y:Math.round(b.y),w:Math.round(b.width),h:Math.round(b.height)}; };
+  const r = (e) => { if (!e) return null; const b = e.getBoundingClientRect(); return {x:Math.round(b.x),y:Math.round(b.y),w:Math.round(b.width),h:Math.round(b.height),bottom:Math.round(b.bottom)}; };
   const sol = [...document.querySelectorAll('button')].find(b=>/^Solution$/i.test(b.innerText.trim()));
   const skip = document.querySelector('[data-testid="next-button"]') || document.querySelector('[data-testid="skip-button"]');
   const cs = strip ? getComputedStyle(strip) : null;

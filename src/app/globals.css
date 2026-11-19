@@ -55,14 +55,18 @@
 
   color-scheme: light;
 
-  /* Height of the sticky app header. Narrow screens wrap it to two rows
-     (title + tab bar); desktop keeps it one row. Used to size the board frame
-     and to offset scrollIntoView so the board's head clears the header. */
-  --board-header: 65px;
+  /* Height reserved ABOVE the board frame: the sticky app header PLUS the
+     page container's own top padding. Narrow screens wrap the header to two rows
+     (title + tab bar) and desktop keeps it one row.
+     Both numbers include main's py-6 (24px) — that was the bug: without it the
+     frame came out 24px too tall, so on desktop the panel ran ~23px past the
+     bottom of the viewport and the Solution / Hard buttons sat 3px below the fold
+     (measured bottom 884 vs viewport 881). */
+  --board-header: 89px;
 }
 
 @media (max-width: 767px) {
-  :root { --board-header: 113px; }
+  :root { --board-header: 137px; }
 }
 
 .dark {
@@ -657,6 +661,50 @@ body {
 @media (max-width: 480px) {
   .board-actions__primary { flex: 1 1 auto; min-width: 0; }
   .board-actions__secondary { flex: 0 0 auto; }
+}
+
+/* Phone: tighten the head above the board.
+   It measured 128px — four rows of furniture (theme, puzzle id, rating pills,
+   theme chips) — which pushed the whole panel past one screen and forced a
+   scroll. The board is ALREADY at maximum width on a phone (full-bleed square),
+   so shaving the head is the only way to make it dominate the screen the way it
+   does when you scroll and the head leaves the viewport. Same panel, nothing
+   scrolled off. */
+@media (max-width: 899px) {
+  .board-panel__head {
+    padding: 0.3rem 0.7rem;
+    gap: 0.4rem;
+  }
+  /* Put the theme and the puzzle id on ONE line. Stacked they were two rows of
+     the four that made the head 128px tall. */
+  .board-panel__titles {
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 0.15rem 0.6rem;
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+  .board-panel__titles > div:first-child { margin-bottom: 0 !important; }
+  .board-panel__title { font-size: 0.94rem; gap: 0.35rem; }
+  .board-panel__meta {
+    gap: 0.25rem;
+    margin-top: 0.15rem;
+    flex-basis: 100%;
+  }
+  .board-panel__meta > * {
+    font-size: 0.72rem;
+    padding-top: 0.08rem;
+    padding-bottom: 0.08rem;
+  }
+  .board-panel__foot { padding-top: 0.3rem; padding-bottom: 0.3rem; }
+  /* Minimum gap between the two stacked buttons (Next above Hard). The panel has
+     to fit one phone screen, and this 4px is what brings the Hard button's bottom
+     edge back inside the fold. */
+  .board-actions__primary { gap: 0.15rem; }
+  /* Keep the session strip compact — it is its own row now, so its height is
+     pure overhead on a phone. */
+  [data-testid="session-strip"] { padding-top: 0.05rem; padding-bottom: 0.05rem; }
 }
 .board-panel__progress {
   display: flex;

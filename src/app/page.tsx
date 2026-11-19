@@ -705,12 +705,12 @@ function PuzzleDashboardPageInner() {
   );
 
   // When a training puzzle is started, bring its board into view.
-  useEffect(() => {
-    if (selectedPuzzle && boardContext === "training") {
-      const el = document.querySelector('[data-testid="training-board"]');
-      el?.scrollIntoView({ behavior: "smooth", block: "start" });
-    }
-  }, [selectedPuzzle, boardContext]);
+  // NOTE: there used to be a scrollIntoView() here that pulled the board into
+  // view when a training puzzle started. It is gone deliberately. It was needed
+  // when the board sat far down a long page, but the layout is board-first now,
+  // so all it did was leave the page scrolled down on load (measured: scrollY 136
+  // on both phone and desktop) and force the user to scroll back up every time.
+  // With the head tightened the whole panel fits without scrolling at all.
 
   // Activity heatmap data: day (YYYY-MM-DD) -> attempt count, from real attempts.
   const heatmapData = useMemo(() => {
@@ -923,8 +923,13 @@ function PuzzleDashboardPageInner() {
     // scrolling, which is what Training gets right). When a board is up, Review
     // renders ONLY the board panel, same as Training does.
     if (boardUp) {
+      // EXACTLY the wrapper Training uses. This matters more than it looks: an
+      // earlier version used `max-w-3xl`, which is narrower than Training's
+      // container, so the head's flex row WRAPPED onto three lines instead of
+      // collapsing to one — a 102px head vs Training's 38px, and a board 455px
+      // wide vs 518px. Same markup, same result, no per-tab divergence.
       return (
-        <div className="mx-auto w-full max-w-3xl">
+        <div className="mb-4" data-testid="review-board">
           {renderBoardPanel("review")}
         </div>
       );
@@ -1272,11 +1277,10 @@ function TrainingTab({
     dispenseThemed([], difficulty, "training");
   };
 
-  return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-      {/* Header — a green Quick start button (same style/font as the Review Due
-          button), then the ACTIVE THEME once a puzzle is underway. */}
-      <div className="mb-8 flex flex-wrap items-center gap-4">
+  const boardUpHere = boardContext === "training" && !!selectedPuzzle;
+
+  const quickStartRow = (
+    <div className="mb-4 flex flex-wrap items-center gap-4">
         <button
           data-testid="quickstart-button"
           onClick={onQuickStart}
@@ -1308,14 +1312,35 @@ function TrainingTab({
             </button>
           </div>
         )}
-      </div>
+    </div>
+  );
 
-      {/* Board — rendered INSIDE the Training tab when a training puzzle is active */}
+  return (
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pb-4">
+      {/* The Quick start row is the call to action when there is NO board. Once a
+          puzzle is up it moves BELOW the board, where its ~64px no longer pushes
+          the board and its buttons below the fold. */}
+      {!boardUpHere && quickStartRow}
+
+      {/* Board — rendered INSIDE the Training tab when a training puzzle is active.
+          The negative margins cancel this tab's own container padding: `main`
+          ALREADY provides px-4/sm:px-6/lg:px-8, so without this the board was
+          padded twice and came out 326px wide while Review's identical board was
+          358px. The two tabs must render the same board at the same width. */}
       {boardContext === "training" && selectedPuzzle && (
-        <div className="mb-8" data-testid="training-board" style={{ scrollMarginTop: "var(--board-header, 65px)" }}>
+        <div
+          className="mb-4 -mx-4 sm:-mx-6 lg:-mx-8"
+          data-testid="training-board"
+          style={{ scrollMarginTop: "var(--board-header, 65px)" }}
+        >
           {renderBoardPanel("training")}
         </div>
       )}
+
+      {/* While a board is up, the Quick start / Stop row lives here, under the
+          board. The run's progress is already visible in the board's session
+          strip, so nothing is hidden except having to scroll past it. */}
+      {boardUpHere && quickStartRow}
 
       {/* Rating & Stats Bar */}
       <div className="flex flex-wrap items-center gap-4 mb-8 p-4 bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700">
