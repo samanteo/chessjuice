@@ -67,6 +67,52 @@ let hydrated = false;
 let pendingPush: ReturnType<typeof setTimeout> | null = null;
 const dirty = new Set<string>();
 
+/** Throttle so a flurry of focus events cannot hammer the endpoint. */
+let lastRefresh = 0;
+/** Server had newer data while a puzzle was on screen — apply it when we can. */
+let pendingRefresh = false;
+
+/**
+ * Re-read the server, because this tab may have been open and idle while another
+ * device progressed.
+ *
+ * Order matters for safety: adopt the server's copy FIRST, then let the user
+ * interact. A tab that pushes its stale copy before refreshing is what loses the
+ * other device's puzzles.
+ *
+ * If a puzzle is on the board we must NOT reload — that would throw away a
+ * half-solved attempt. Keep `pendingRefresh` and apply it once the board clears.
+ */
+async function refreshFromServer(): Promise<void> {
+  if (!hydrated) return;
+  const now = Date.now();
+  if (now - lastRefresh < 5_000) return;
+  lastRefresh = now;
+
+  let changed = false;
+  try {
+    changed = await pullState();
+  } catch {
+    return;
+  }
+  if (!changed) return;
+
+  // A board on screen means the user is mid-solve.
+  if (document.querySelector("[data-board-context]")) {
+    pendingRefresh = true;
+    return;
+  }
+  window.location.reload();
+}
+
+/** Apply a deferred refresh once the board is gone (checked on each focus). */
+function applyPendingRefresh(): void {
+  if (!pendingRefresh) return;
+  if (document.querySelector("[data-board-context]")) return;
+  pendingRefresh = false;
+  window.location.reload();
+}
+
 const syncDisabled = (): boolean => {
   try {
     return localStorage.getItem(OFF_KEY) === "off";
@@ -265,6 +311,17 @@ export function installStateSync(onChanged?: () => void): void {
       dirty.clear();
       void push(keys);
     }
+    // Coming BACK to the tab is the dangerous moment: a tab left open holds a
+    // stale copy, and the next write would push that stale copy over another
+    // device's newer progress. Refresh from the server before that can happen.
+    if (document.visibilityState === "visible") {
+      applyPendingRefresh();
+      void refreshFromServer();
+    }
+  });
+  window.addEventListener("focus", () => {
+    applyPendingRefresh();
+    void refreshFromServer();
   });
   window.addEventListener("beforeunload", () => {
     if (dirty.size > 0) void push(Array.from(dirty));
