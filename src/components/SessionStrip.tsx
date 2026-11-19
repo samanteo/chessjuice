@@ -72,9 +72,18 @@ export function SessionStrip({
 
   return (
     <div
-      className="w-full flex items-center gap-2 px-3 py-2"
+      // A card treatment, not just a top hairline. The strip is placed between
+      // the Solution button and the Skip/Next column, where a transparent
+      // background made it read as empty space — it needs to look like a block.
+      // NOTE: this app's tokens are --surface-* / --text (NOT --foreground, which
+      // only the desktop widget frame injects). Referencing an undefined var made
+      // the whole declaration invalid and it silently fell back to transparent.
+      className="w-full flex items-center gap-2 px-3 py-2 rounded-lg"
       data-testid="session-strip"
-      style={{ borderTop: "1px solid var(--border)" }}
+      style={{
+        background: "var(--surface-3)",
+        border: "1px solid var(--border-strong)",
+      }}
     >
       <button
         onClick={() => canPrev && onReplayAt(currentIdx - 1)}

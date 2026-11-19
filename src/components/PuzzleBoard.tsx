@@ -6,6 +6,7 @@ import { ChessgroundWrapper } from "@/components/chessground/ChessgroundWrapper"
 import { useTheme } from "@/components/theme/ThemeProvider";
 import { UserPuzzle, PuzzleAttempt } from "@/types";
 import { playSound } from "@/lib/sound";
+import { SessionStrip, type SessionEntry } from "@/components/SessionStrip";
 
 type Key = string;
 
@@ -48,6 +49,15 @@ interface PuzzleBoardProps {
    * you asked to practise. Omitted for a plain review of a mistake.
    */
   angleLabel?: string | null;
+  /**
+   * Session progress chips, rendered INSIDE the foot between the Solution button
+   * and the Skip/Next column. The user asked for them there instead of below the
+   * board, where they sat under the fold on a phone and wasted the space.
+   */
+  sessionEntries?: SessionEntry[];
+  sessionActiveIndex?: number | null;
+  sessionThemeLabel?: string | null;
+  onReplayAt?: (index: number) => void;
 }
 
 interface Snapshot {
@@ -65,6 +75,10 @@ export function PuzzleBoard({
   onClose,
   onAdvance,
   angleLabel,
+  sessionEntries,
+  sessionActiveIndex,
+  sessionThemeLabel,
+  onReplayAt,
 }: PuzzleBoardProps) {
   const theme = useTheme();
   const {
@@ -761,6 +775,22 @@ export function PuzzleBoard({
               Solution
             </button>
           </div>
+
+          {/* Session progress chips — in the MIDDLE of the action row, i.e.
+              between the Solution button and the Skip/Next column. Below the
+              board they sat under the fold on a phone and wasted the space.
+              `flex: 1 1 auto` lets the strip absorb the leftover width without
+              pushing the primary column off-screen. */}
+          {sessionEntries && sessionEntries.length > 0 && onReplayAt && (
+            <div style={{ flex: "1 1 auto", minWidth: 0 }}>
+              <SessionStrip
+                entries={sessionEntries}
+                activeIndex={sessionActiveIndex ?? null}
+                themeLabel={sessionThemeLabel ?? null}
+                onReplayAt={onReplayAt}
+              />
+            </div>
+          )}
 
           {/* Primary column: the button you press most often is on TOP, with Hard
               directly beneath it — both full-width, so they are easy to hit with

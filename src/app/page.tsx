@@ -3,7 +3,6 @@
 import { useState, useCallback, useEffect, useMemo, useRef } from "react";
 import { ChessgroundWrapper } from "@/components/chessground/ChessgroundWrapper";
 import { QueueViews } from "@/components/QueueViews";
-import { SessionStrip } from "@/components/SessionStrip";
 import { ThemeFilter } from "@/components/ThemeFilter";
 import { ThemeSelector } from "@/components/theme/ThemeSelector";
 import { ThemeProvider, useTheme } from "@/components/theme/ThemeProvider";
@@ -95,6 +94,10 @@ function PuzzleDashboardPageInner() {
   const theme = useTheme();
   const [activeTab, setActiveTab] = useState<TabId>("training");
   const [activeQueue, setActiveQueue] = useState<QueueType>("due");
+  // Shown when a due-review run runs OUT of due mistakes. Without this the queue
+  // emptied silently: the finished puzzle stayed on the board and "Next puzzle"
+  // did nothing, so the last puzzle looked un-completable.
+  const [reviewComplete, setReviewComplete] = useState(false);
   const [selectedPuzzle, setSelectedPuzzle] = useState<UserPuzzle | null>(null);
   // Which tab a puzzle was started from — the board renders in that tab only.
   const [boardContext, setBoardContext] = useState<"training" | "review" | "allthemes">("review");
@@ -289,11 +292,34 @@ function PuzzleDashboardPageInner() {
       // from the whole catalogue.
       if (context === "review") {
         pool = pool.filter((p) => getQueueType(p as unknown as SM2State) === "due");
+        // Rung 0 is ALWAYS 'due' (that is the "today's deck" rule in sm2.ts), so a
+        // puzzle you got wrong stays due indefinitely — the queue would never
+        // empty on its own. Within ONE sitting we must not serve the same mistake
+        // twice, so drop whatever we have already shown. Once the last due puzzle
+        // has been served this leaves an empty pool, which is what ENDS the run
+        // (see the guard below) instead of re-serving the same puzzle forever —
+        // the "due count stuck at 1, Next puzzle does nothing" bug.
+        pool = pool.filter((p) => !recentlyServed.current.has(p.id));
       }
 
       if (themes.length > 0) {
         pool = pool.filter((p) => p.themes.some((t: string) => themes.includes(t as LichessTheme)));
       }
+
+      // ---- Review reaching the END of the due queue --------------------------
+      // Review must NEVER fall back to the whole catalogue (that served a random
+      // NON-due puzzle). Worse, the shared fallback below could leave `chosen`
+      // undefined, and `if (!chosen) return` then returned SILENTLY: the finished
+      // puzzle stayed on the board and "Next puzzle" did nothing at all, so the
+      // last due puzzle looked impossible to finish. Clear the board and show a
+      // completion state instead.
+      if (context === "review" && pool.length === 0) {
+        setSelectedPuzzle(null);
+        setActiveTheme(null);
+        setReviewComplete(true);
+        return;
+      }
+
       if (pool.length === 0) pool = (puzzles as any[]).filter((p) => !p.removedAt);
 
       // Training dispenses NEW puzzles first; fall back only when exhausted.
@@ -307,8 +333,18 @@ function PuzzleDashboardPageInner() {
         difficultyId,
         exclude: recentlyServed.current,
       });
-      if (!chosen) return;
+      if (!chosen) {
+        // Review: everything still in the pool is already in `recentlyServed`, so
+        // this sitting is over. Clear the board rather than leaving a dead one up.
+        if (context === "review") {
+          setSelectedPuzzle(null);
+          setActiveTheme(null);
+          setReviewComplete(true);
+        }
+        return;
+      }
       recentlyServed.current.add(chosen.id);
+      setReviewComplete(false);
 
       setSelectedThemes(themes);
       setShowWrongPuzzles(false);
@@ -557,6 +593,10 @@ function PuzzleDashboardPageInner() {
     setActiveTab("mistakes");
     setBoardContext("review");
     setSelectedThemes([]);
+    // A fresh run must be able to serve puzzles we already showed in the last
+    // sitting, so clear the exclusion set and the "queue cleared" state.
+    recentlyServed.current.clear();
+    setReviewComplete(false);
     dispenseThemed([], difficulty, "review");
   }, [dispenseThemed, difficulty]);
 
@@ -574,6 +614,7 @@ function PuzzleDashboardPageInner() {
     setActiveTheme(null);
     setBoardContext("training");
     setSessionActive(-1);
+    setReviewComplete(false);
     setActiveTab("training");
   }, []);
 
@@ -644,17 +685,19 @@ function PuzzleDashboardPageInner() {
             }}
             onAdvance={() => handleBoardNext(context)}
             onClose={() => handleBoardNext(context)}
+            // Session progress chips render INSIDE the board's foot — between the
+            // Solution button and the Skip/Next column (see PuzzleBoard). They
+            // used to sit below the board, under the fold on a phone. Only
+            // Training keeps a running batch to page back through.
+            {...(context === "training"
+              ? {
+                  sessionEntries: sessionLog.entries,
+                  sessionActiveIndex: sessionActive,
+                  sessionThemeLabel: activeTheme ? themeLabel(activeTheme) : null,
+                  onReplayAt: replaySessionAt,
+                }
+              : {})}
           />
-          {/* Lichess-style progress chips for THIS theme's batch. Only Training
-              keeps a running batch to page back through. */}
-          {context === "training" && (
-            <SessionStrip
-              entries={sessionLog.entries}
-              activeIndex={sessionActive}
-              themeLabel={activeTheme ? themeLabel(activeTheme) : null}
-              onReplayAt={replaySessionAt}
-            />
-          )}
         </div>
       );
     },
@@ -871,85 +914,105 @@ function PuzzleDashboardPageInner() {
   );
 
   // Mistakes tab (SM-2 queue)
-  const renderMistakes = () => (
-    <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 h-[calc(100vh-160px)] min-h-0 overflow-hidden">
-      {/* Sidebar - Queue Views */}
-      <aside className="lg:col-span-1 h-full min-h-0 overflow-hidden">
-        <QueueViews
-          puzzles={filteredPuzzles}
-          queueCounts={queueCounts}
-          activeQueue={activeQueue}
-          onQueueChange={setActiveQueue}
-          onPuzzleSelect={(puzzle) => {
-            setSelectedPuzzle(puzzle);
-            setBoardContext("review");
-            setActiveTab("mistakes");
-          }}
-          onRemovePuzzle={removePuzzle}
-          onRestorePuzzle={restorePuzzle}
-          onThemeFilterChange={setSelectedThemes}
-          selectedThemes={selectedThemes}
-          themeCounts={themeCounts}
-          wrongPuzzlesCount={wrongPuzzlesCount}
-          showWrongPuzzles={showWrongPuzzles}
-          onWrongPuzzlesToggle={setShowWrongPuzzles}
-          userRating={settings?.rating || 1000}
-          newPuzzlesPerDay={settings?.newPuzzlesPerDay || 5}
-        />
-      </aside>
+  const renderMistakes = () => {
+    const boardUp = !!(selectedPuzzle && boardContext === "review");
 
-      {/* Main - Puzzle Player or Empty State */}
-      <section className="lg:col-span-3 h-full min-h-0 overflow-hidden">
-        {selectedPuzzle && boardContext === "review" ? (
-          <PuzzleBoard
-            key={selectedPuzzle.id}
-            puzzle={selectedPuzzle}
-            userRating={settings?.rating || 1000}
-            pieceSet={theme.pieceSet}
-            boardTheme={theme.boardTheme}
-            coordinates={theme.coordinates}
-            // Reviewing a mistake has no "chosen" theme, so show the puzzle's own
-            // angle (opening first, then its first theme).
-            angleLabel={(() => {
-              const q = selectedPuzzle as unknown as { themes?: string[]; openings?: string[] };
-              const own = (q.openings ?? [])[0] ?? (q.themes ?? [])[0] ?? null;
-              return own ? themeLabel(own) : null;
-            })()}
-            onComplete={(attempt) => {
-              handlePuzzleComplete(attempt);
+    // BOARD-FIRST, exactly like Training.
+    // Once a mistake is on the board, the queue sidebar is noise: it took a whole
+    // column of width and pushed the controls below the fold (invisible without
+    // scrolling, which is what Training gets right). When a board is up, Review
+    // renders ONLY the board panel, same as Training does.
+    if (boardUp) {
+      return (
+        <div className="mx-auto w-full max-w-3xl">
+          {renderBoardPanel("review")}
+        </div>
+      );
+    }
+
+    return (
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Sidebar - Queue Views (only while no puzzle is on the board) */}
+        <aside className="lg:col-span-1">
+          <QueueViews
+            puzzles={filteredPuzzles}
+            queueCounts={queueCounts}
+            activeQueue={activeQueue}
+            onQueueChange={setActiveQueue}
+            onPuzzleSelect={(puzzle) => {
+              setReviewComplete(false);
+              setSelectedPuzzle(puzzle);
+              setBoardContext("review");
+              setActiveTab("mistakes");
             }}
-            onAdvance={() => handleBoardNext("review")}
-            onClose={() => handleBoardNext("review")}
+            onRemovePuzzle={removePuzzle}
+            onRestorePuzzle={restorePuzzle}
+            onThemeFilterChange={setSelectedThemes}
+            selectedThemes={selectedThemes}
+            themeCounts={themeCounts}
+            wrongPuzzlesCount={wrongPuzzlesCount}
+            showWrongPuzzles={showWrongPuzzles}
+            onWrongPuzzlesToggle={setShowWrongPuzzles}
+            userRating={settings?.rating || 1000}
+            newPuzzlesPerDay={settings?.newPuzzlesPerDay || 5}
           />
-        ) : (
-          <div className="h-full flex flex-col items-center justify-center text-gray-500 dark:text-gray-400">
-            <div className="text-8xl mb-6">📚</div>
-            <h2 className="text-2xl font-semibold mb-2">No mistake selected</h2>
-            <p className="text-lg max-w-md text-center">
-              This tab collects the puzzles you got <strong>wrong</strong> while training.
-              Pick one from the queue on the left to review it.
-            </p>
-            <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
-              <button
-                onClick={goToTraining}
-                className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium"
-              >
-                🎯 Go to Training
-              </button>
-              {dueCount > 0 && (
+        </aside>
+
+        {/* Main - prompt, or the "you cleared the due queue" state */}
+        <section className="lg:col-span-2">
+          {reviewComplete ? (
+            <div className="flex flex-col items-center justify-center py-16 text-center">
+              <div className="text-8xl mb-6">🎉</div>
+              <h2 className="text-2xl font-semibold mb-2">Review complete</h2>
+              <p className="text-lg max-w-md text-gray-500 dark:text-gray-400">
+                Nothing is due right now — you cleared the whole due queue.
+                Your mistakes stay here until you remove them by hand.
+              </p>
+              <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
                 <button
-                  onClick={startDueReview}
-                  className="px-6 py-3 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors font-medium"
+                  onClick={goToTraining}
+                  className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium"
                 >
-                  ⏰ Review Due ({dueCount})
+                  🎯 Go to Training
                 </button>
-              )}
+                <button
+                  onClick={() => setReviewComplete(false)}
+                  className="px-6 py-3 bg-gray-200 dark:bg-gray-700 text-gray-900 dark:text-white rounded-lg hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors font-medium"
+                >
+                  ↩ Back to the list
+                </button>
+              </div>
             </div>
-          </div>
-        )}
-      </section>
-    </div>
-  );
+          ) : (
+            <div className="flex flex-col items-center justify-center py-16 text-center text-gray-500 dark:text-gray-400">
+              <div className="text-8xl mb-6">📚</div>
+              <h2 className="text-2xl font-semibold mb-2">No mistake selected</h2>
+              <p className="text-lg max-w-md">
+                This tab collects the puzzles you got <strong>wrong</strong> while training.
+                Pick one from the queue on the left to review it.
+              </p>
+              <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
+                <button
+                  onClick={goToTraining}
+                  className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium"
+                >
+                  🎯 Go to Training
+                </button>
+                {dueCount > 0 && (
+                  <button
+                    onClick={startDueReview}
+                    className="px-6 py-3 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors font-medium"
+                  >
+                    ⏰ Review Due ({dueCount})
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+        </section>
+      </div>
+    );
+  };
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
