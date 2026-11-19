@@ -1,0 +1,54 @@
+# ---------------------------------------------------------------------------
+# What is NOT in version control, and why
+# ---------------------------------------------------------------------------
+# The point of this repo is your CODE + your small user-state JSON, so that any
+# future edit is a reviewable diff and a rollback is one command. Everything
+# below is either huge, regenerable, or machine-local.
+#
+# NOTE: `data/puzzles.sqlite` is 2.4 GB. It is NOT committed, and it must never
+# live in a cloud-sync folder (Drive/iCloud/Dropbox) either — syncing a live
+# SQLite file can corrupt it, and it is rebuildable from source whenever you
+# need it (`node scripts/build-sqlite.mjs`).
+
+# --- big + regenerable -----------------------------------------------------
+# Keep the docs, drop the database itself.
+/data/*
+!/data/README.md
+node_modules/
+/.next/
+/out/
+/build/
+*.tsbuildinfo
+
+# --- Lichess source data (~1.9 GB) -----------------------------------------
+# These are the RAW downloads used to build data/puzzles.sqlite. Re-downloadable
+# at any time (see scripts/build-sqlite.mjs), and far too big for a code repo.
+/lichess_db_puzzle.csv
+/lichess_db_puzzle.csv.zst
+/filtered_puzzles.csv
+*.csv.zst
+
+# --- dependency + tooling noise -------------------------------------------
+.pnp
+.pnp.js
+.npm
+.eslintcache
+coverage/
+
+# --- machine-local ---------------------------------------------------------
+.DS_Store
+*.pem
+.vercel
+next-env.d.ts
+
+# --- env / secrets (never commit these) ------------------------------------
+.env
+.env*.local
+
+# --- local scratch ---------------------------------------------------------
+/tmp/
+*.log
+# Throwaway scripts agent runs create and delete mid-flight; they break `git add`
+# if a scan catches them vanishing.
+scripts/_tmp-*
+scripts/.tmp-*

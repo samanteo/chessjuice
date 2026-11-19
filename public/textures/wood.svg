@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100" viewBox="0 0 100 100">
+  <defs>
+    <pattern id="wood" x="0" y="0" width="100" height="100" patternUnits="userSpaceOnUse">
+      <rect width="100" height="100" fill="#b58863"/>
+      <g stroke="#9c744e" stroke-width="0.5" opacity="0.3">
+        <line x1="0" y1="10" x2="100" y2="10"/>
+        <line x1="0" y1="25" x2="100" y2="25"/>
+        <line x1="0" y1="40" x2="100" y2="40"/>
+        <line x1="0" y1="55" x2="100" y2="55"/>
+        <line x1="0" y1="70" x2="100" y2="70"/>
+        <line x1="0" y1="85" x2="100" y2="85"/>
+      </g>
+      <g stroke="#7a5a3a" stroke-width="0.3" opacity="0.2">
+        <path d="M0,15 Q50,12 100,15"/>
+        <path d="M0,30 Q50,33 100,30"/>
+        <path d="M0,45 Q50,42 100,45"/>
+        <path d="M0,60 Q50,63 100,60"/>
+        <path d="M0,75 Q50,72 100,75"/>
+        <path d="M0,90 Q50,93 100,90"/>
+      </g>
+    </pattern>
+  </defs>
+  <rect width="100" height="100" fill="url(#wood)"/>
+</svg>

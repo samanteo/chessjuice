@@ -1,0 +1,13 @@
+{
+  "status": "complete",
+  "deliverables": [
+    "supabase/schema.sql",
+    "scripts/import_puzzles.py",
+    "src/lib/sm2.ts",
+    "src/components/PuzzlePlayer.tsx",
+    "src/components/ThemeFilter.tsx",
+    "src/components/QueueViews.tsx"
+  ],
+  "progress_file": "/Users/sam/puzzle-trainer/progress.json",
+  "notes": "All 6 deliverables created successfully in /Users/sam/puzzle-trainer. Project includes: Supabase schema with RLS policies, CSV import script filtering 1000-2200 rating with all 60 Lichess themes, SM-2 scheduler TypeScript for wrong puzzles only, PuzzlePlayer with react-chessboard + chess.js (move validation, hints, solutions, rating ±10), ThemeFilter with all Lichess themes + Wrong Puzzles pseudo-theme, QueueViews with Due/New/Learning/Mastered/Archived tabs. Local-first with localStorage, Supabase optional. Run with 'npm install && npm run dev'."
+}

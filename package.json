@@ -1,0 +1,37 @@
+{
+  "name": "puzzle-trainer",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "import-puzzles": "python3 scripts/import_puzzles.py",
+    "build-db": "node scripts/build-sqlite.mjs",
+    "build-puzzles": "python3 scripts/build_balanced_puzzles.py"
+  },
+  "dependencies": {
+    "@lichess-org/chessground": "^10.5.0",
+    "@supabase/supabase-js": "^2.39.0",
+    "chess.js": "1.0.0-beta.8",
+    "chessground": "^9.2.1",
+    "next": "14.2.0",
+    "react": "18.2.0",
+    "react-chessboard": "4.4.0",
+    "react-dom": "18.2.0",
+    "stockfish.js": "^10.0.2"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@types/react": "^18.2.0",
+    "@types/react-dom": "^18.2.0",
+    "autoprefixer": "^10.4.0",
+    "eslint": "^8.56.0",
+    "eslint-config-next": "^14.2.0",
+    "postcss": "^8.4.0",
+    "tailwindcss": "^3.4.0",
+    "typescript": "^5.3.0",
+    "ws": "^8.23.0"
+  }
+}
