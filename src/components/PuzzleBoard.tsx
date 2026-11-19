@@ -272,7 +272,7 @@ export function PuzzleBoard({
       setStatus(correct ? "correct" : "wrong");
       if (correct) {
         playSound("correct");
-        setFeedback("Correct! 🎉");
+        setFeedback("Correct! 🎉 — or mark it Hard if it was a lucky guess.");
       } else if (timedOut) {
         playSound("wrong");
         setFeedback(`⏱ Time's up! The best move was ${expectedUci || "…"}`);
@@ -746,24 +746,11 @@ export function PuzzleBoard({
         </div>
       )}
 
-      {/* Correct solve waits here so the user can still mark it HARD. */}
-      {status === "correct" && (
-        <div
-          className="board-panel__actions"
-          style={{ padding: "0.75rem 1.25rem", borderTop: "1px solid var(--border)" }}
-        >
-          <span style={{ fontSize: "0.85rem", opacity: 0.75 }}>
-            Solved — or mark it Hard if it was a lucky guess.
-          </span>
-          <div className="flex-1" />
-          <button onClick={handleHard} className="btn-ghost" data-testid="hard-button-correct">
-            😅 Hard
-          </button>
-          <button onClick={handleNext} className="btn-primary" data-testid="next-button-correct">
-            Next puzzle
-          </button>
-        </div>
-      )}
+      {/* NOTE: a second "Solved — or mark it Hard…" action bar used to live here,
+          with its own Hard + Next buttons. That duplicated the primary column in
+          the foot below, so the board rendered FOUR buttons where there should be
+          two. Its message now rides on the feedback line instead (see finish()),
+          so the "you can still mark it Hard" hint is not lost. */}
 
       {/* Foot / controls */}
       <div className="board-panel__foot">
