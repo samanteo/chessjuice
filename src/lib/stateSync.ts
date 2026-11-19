@@ -1,116 +1,53 @@
 /**
- * Cross-device state sync — the client half of `/api/state`.
+ * Cross-device state — the client half of `/api/state`.
  *
- * THE PROBLEM THIS SOLVES
- * -----------------------
- * Every store in this app persists to `localStorage`, which the browser scopes
- * per-origin PER DEVICE. So the phone, desktop Chrome and desktop Brave each had
- * their own private progress: solve a puzzle on the phone and the desktop never
- * hears about it. There is no client-side trick that fixes this — the data has to
- * live on the server, which is what `/api/state` provides.
+ * THE MODEL: THE SERVER IS THE TRUTH. localStorage is a CACHE.
  *
- * HOW IT WORKS (deliberately small and boring)
- * --------------------------------------------
- * 1. PUSH — `localStorage.setItem` is wrapped. Any write to a `puzzle_trainer_*`
- *    key stamps a timestamp and schedules a debounced PUT of just the changed
- *    keys. The app's own stores are untouched and unaware.
- * 2. PULL — on boot, GET the server copy. For every key whose server timestamp is
- *    NEWER than ours, write it locally. If that changed anything, the page
- *    reloads ONCE so the existing stores hydrate from the fresh values (they read
- *    localStorage during mount, so they must not be running when we overwrite it).
+ * This replaced an earlier sync engine that kept two peer copies and reconciled
+ * them with per-key timestamps. That design was where every sync bug came from:
+ * keys written before the engine existed were never uploaded, a device's blank
+ * defaults could beat real data on freshness, and a single oversized request was
+ * rejected by the browser and swallowed silently. Reconciling two authorities is
+ * intrinsically fiddly; having one authority is not.
  *
- * The one-reload approach exists to avoid restructuring every store around async
- * hydration. It costs a single extra page load when you switch devices, and
- * nothing at all when you don't.
+ * So now:
+ *   1. PULL — on boot, GET the server copy and make it local. Server value wins,
+ *      unconditionally, for every key the server holds. If that changed anything
+ *      the page reloads ONCE so the stores hydrate from the fresh values (they
+ *      read localStorage during mount, so they must not be running when we
+ *      overwrite it).
+ *   2. PUSH — writes to `puzzle_trainer_*` keys are recorded and sent to the
+ *      server. No timestamps decide anything; last writer wins by arrival.
+ *   3. A key the server has NEVER seen is uploaded from local (so a first-time
+ *      device contributes its state instead of only receiving).
  *
- * FAILS SOFT: if `/api/state` is missing or unreachable (offline, static export,
- * server down), every path below is a no-op and the app behaves exactly as it did
- * before — plain per-device localStorage.
+ * SAFETY RULE: nothing is pushed until the first pull has completed. That is what
+ * stops a brand-new browser — which writes empty defaults like `[]` on mount —
+ * from clobbering real data with them before it has had a chance to read it.
+ *
+ * FAILS SOFT: if `/api/state` is unreachable the app behaves as a plain
+ * per-device install. Writes stay local and are pushed once a connection works.
  */
 
 const PREFIX = "puzzle_trainer_";
 /**
  * Keys that look like state but must NEVER sync.
  *
- * `puzzle_trainer_sync` is the test/debug opt-out. If it were uploaded, every
- * other device would adopt `"off"` and cross-device sync would silently stop
- * working everywhere — including on the machine serving it. Bookkeeping keys
- * (`__sync_clock`, the reload flag) are excluded for the same reason.
+ * `puzzle_trainer_sync` is the test opt-out. If it were uploaded, every device
+ * would adopt "off" and sync would silently die everywhere — which is exactly
+ * what one stray test flag already did to the user's real browser.
  */
-const NEVER_SYNC = new Set([
-  "puzzle_trainer_sync",
-  "puzzle_trainer_sync_reloaded",
-]);
-/** Local clock per key, so we can tell whether ours or the server's is newer. */
-const CLOCK_KEY = "__sync_clock";
+const NEVER_SYNC = new Set(["puzzle_trainer_sync", "puzzle_trainer_sync_reloaded"]);
 /** Set for the lifetime of one page load to stop reload loops. */
 const RELOAD_FLAG = "puzzle_trainer_sync_reloaded";
-/**
- * Opt-out, read from localStorage BEFORE the first pull.
- *
- * The CDP verification scripts assert a CLEAN SLATE (`attempts === 0`, no glicko
- * key). With sync on, a device that has just cleared its localStorage would
- * immediately re-import the server's copy from an earlier run, so those
- * assertions fail for a reason that has nothing to do with the behaviour under
- * test. Tests set `puzzle_trainer_sync = "off"` after clearing, and this makes
- * every path below a no-op — exactly the pre-sync behaviour.
- */
+/** Opt-out, read BEFORE the first pull. Tests use it for a clean slate. */
 const OFF_KEY = "puzzle_trainer_sync";
 
-const syncDisabled = (): boolean => {
-  try {
-    return localStorage.getItem(OFF_KEY) === "off";
-  } catch {
-    return false;
-  }
-};
-
-const PUSH_DEBOUNCE_MS = 800;
+/** Debounce before flushing changes to the server. */
+const PUSH_DEBOUNCE_MS = 600;
 
 let installed = false;
-let pendingPush: ReturnType<typeof setTimeout> | null = null;
-const dirty = new Set<string>();
-
-/** Keys we own. Excludes our own bookkeeping and never-sync keys. */
-function isStateKey(k: string): boolean {
-  return (
-    typeof k === "string" &&
-    k.startsWith(PREFIX) &&
-    !k.endsWith(CLOCK_KEY) &&
-    !NEVER_SYNC.has(k)
-  );
-}
-
-function readClock(): Record<string, number> {
-  try {
-    const raw = localStorage.getItem(PREFIX + CLOCK_KEY);
-    const parsed = raw ? JSON.parse(raw) : {};
-    return parsed && typeof parsed === "object" ? parsed : {};
-  } catch {
-    return {};
-  }
-}
-
-function writeClock(clock: Record<string, number>): void {
-  try {
-    localStorage.setItem(PREFIX + CLOCK_KEY, JSON.stringify(clock));
-  } catch {
-    /* storage full or unavailable — non-fatal */
-  }
-}
-
-/**
- * Does this stored value carry no user data? (`[]`, `{}`, `""`, `null`)
- *
- * Needed because a FRESH device initialises defaults on mount — an empty pins
- * array, an empty prefs object — and stamps them with the CURRENT time. That
- * makes the blank copy look "newer" than real data on the server, so it wins and
- * WIPES it. This is how a second browser ended up showing no pins at all.
- *
- * Rule: an empty value never beats a populated one, whatever the timestamps say.
- * The cost is that clearing every pin does not propagate as a clear; the local
- * device can still clear them without syncing. Losing real data is far worse.
- */
+/** Does this stored value carry no user data? (`[]`, `{}`, `""`, `null`) */
 function isEmptyValue(v: string | null | undefined): boolean {
   if (v === null || v === undefined) return true;
   const t = v.trim();
@@ -125,40 +62,62 @@ function isEmptyValue(v: string | null | undefined): boolean {
   return false;
 }
 
-/** Every owned key with the timestamp we last wrote it. */
-function collectLocal(): Record<string, { v: string; t: number }> {
-  const clock = readClock();
-  const out: Record<string, { v: string; t: number }> = {};
-  for (let i = 0; i < localStorage.length; i++) {
-    const k = localStorage.key(i);
-    if (!k || !isStateKey(k)) continue;
-    const v = localStorage.getItem(k);
-    if (v === null) continue;
-    out[k] = { v, t: clock[k] ?? 0 };
+/** Has the first pull finished? Nothing is pushed before it has. */
+let hydrated = false;
+let pendingPush: ReturnType<typeof setTimeout> | null = null;
+const dirty = new Set<string>();
+
+const syncDisabled = (): boolean => {
+  try {
+    return localStorage.getItem(OFF_KEY) === "off";
+  } catch {
+    return false;
+  }
+};
+
+/** Keys we own. Excludes bookkeeping and never-sync keys. */
+function isStateKey(k: string): boolean {
+  return (
+    typeof k === "string" &&
+    k.startsWith(PREFIX) &&
+    !k.endsWith("__sync_clock") &&
+    !NEVER_SYNC.has(k)
+  );
+}
+
+/** Every owned key and its raw value. */
+function collectLocal(): Record<string, string> {
+  const out: Record<string, string> = {};
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (!k || !isStateKey(k)) continue;
+      const v = localStorage.getItem(k);
+      if (v !== null) out[k] = v;
+    }
+  } catch {
+    /* storage unavailable */
   }
   return out;
 }
 
+/**
+ * Send keys to the server.
+ *
+ * Batched so no request exceeds fetch's ~64 KiB `keepalive` cap: a real profile's
+ * payload is ~70 KB (109 attempts is ~43 KB on its own), and an oversized request
+ * is rejected BY THE BROWSER before it leaves.
+ */
 async function push(keys?: string[]): Promise<void> {
   try {
     const all = collectLocal();
-    const list = keys ?? Object.keys(all);
-    const entries = list.filter((k) => all[k]).map((k) => [k, all[k]] as const);
-    if (entries.length === 0) return;
+    const list = (keys ?? Object.keys(all)).filter((k) => all[k] !== undefined);
+    if (list.length === 0) return;
 
-    /**
-     * Batch the payload so no single request exceeds the keepalive body cap.
-     *
-     * `fetch(..., { keepalive: true })` is capped at ~64 KiB. A real profile's
-     * payload blows past that fast — 109 attempts alone is ~43 KB, and the whole
-     * set was 69,721 bytes — at which point the BROWSER rejects the request before
-     * it is ever sent. Because this function swallows errors, sync then failed
-     * completely silently: the user's history simply never synced, with nothing to
-     * see in the UI. Batching keeps every request comfortably under the cap.
-     */
     const MAX_BYTES = 55_000;
     let batch: Record<string, { v: string; t: number }> = {};
-    let size = 2; // "{}"
+    let size = 2;
+    const now = Date.now();
 
     const flush = async (): Promise<void> => {
       if (Object.keys(batch).length === 0) return;
@@ -167,26 +126,24 @@ async function push(keys?: string[]): Promise<void> {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body,
-        // Only ask for keepalive when it is actually allowed.
         keepalive: body.length < 60_000,
       });
-      if (!res.ok) {
-        console.warn("[stateSync] push rejected:", res.status, body.length, "bytes");
-      }
+      if (!res.ok) console.warn("[stateSync] push rejected:", res.status, body.length, "bytes");
       batch = {};
       size = 2;
     };
 
-    for (const [k, val] of entries) {
-      const cost = JSON.stringify(k).length + JSON.stringify(val).length + 2;
+    for (const k of list) {
+      const entry = { v: all[k], t: now };
+      const cost = JSON.stringify(k).length + JSON.stringify(entry).length + 2;
       if (size + cost > MAX_BYTES) await flush();
-      batch[k] = val;
+      batch[k] = entry;
       size += cost;
     }
     await flush();
   } catch (err) {
-    // Offline or endpoint missing — the local copy is still correct. Warn rather
-    // than swallow so this is visible in DevTools instead of failing invisibly.
+    // Offline or endpoint missing — the local copy still works. Warn rather than
+    // swallow, so this is visible in DevTools instead of failing invisibly.
     console.warn("[stateSync] push failed:", err);
   }
 }
@@ -195,6 +152,9 @@ function schedulePush(): void {
   if (pendingPush) clearTimeout(pendingPush);
   pendingPush = setTimeout(() => {
     pendingPush = null;
+    // Never push before the first pull: a fresh device writes blank defaults on
+    // mount, and sending those would overwrite real data.
+    if (!hydrated) return;
     const keys = Array.from(dirty);
     dirty.clear();
     void push(keys);
@@ -202,8 +162,8 @@ function schedulePush(): void {
 }
 
 /**
- * Wrap setItem so every app write is stamped and queued for the server.
- * The original behaviour is preserved exactly — this only observes.
+ * Observe writes so they reach the server. The app's stores are untouched and
+ * unaware — this only watches.
  */
 function wrapSetItem(): void {
   const proto = Storage.prototype;
@@ -214,9 +174,6 @@ function wrapSetItem(): void {
     original.call(this, key, value);
     try {
       if (isStateKey(key)) {
-        const clock = readClock();
-        clock[key] = Date.now();
-        writeClock(clock);
         dirty.add(key);
         schedulePush();
       }
@@ -229,98 +186,79 @@ function wrapSetItem(): void {
 }
 
 /**
- * Pull the server copy and apply anything newer. Returns true if local state
- * changed (caller decides whether to reload).
+ * Make the server's copy local. Returns true if anything changed.
+ *
+ * The server wins for every key it holds. Keys it has never seen stay local and
+ * are queued for upload, so a first-time device contributes rather than only
+ * receiving.
  */
 export async function pullState(): Promise<boolean> {
-  let remote: Record<string, { v: string; t: number }>;
+  let remote: Record<string, { v: string; t: number }> = {};
+  let reachable = false;
   try {
     const res = await fetch("/api/state", { cache: "no-store" });
     if (!res.ok) return false;
     const json = await res.json();
     remote = json?.state ?? {};
     if (!remote || typeof remote !== "object") return false;
+    reachable = true;
   } catch {
-    return false; // endpoint absent / offline — stay purely local
+    return false; // offline / endpoint absent — stay purely local
   }
+  if (!reachable) return false;
 
-  const clock = readClock();
   let changed = false;
 
   for (const [key, entry] of Object.entries(remote)) {
     if (!isStateKey(key)) continue;
-    const remoteT = entry?.t ?? 0;
-    const localT = clock[key] ?? 0;
     const localV = localStorage.getItem(key);
-
-    // The server wins on a newer stamp — OR whenever our copy is empty and
-    // theirs is not. A fresh device initialising blank defaults must never
-    // overwrite real data with them (see isEmptyValue).
-    const remoteWins =
-      remoteT > localT || (isEmptyValue(localV) && !isEmptyValue(entry.v));
-
-    if (remoteWins && entry.v !== localV) {
-      // Server is newer: adopt it. Write through the ORIGINAL setItem so we do
-      // not immediately echo this back as a local edit.
+    // Server is the authority: adopt it whenever it differs. The ONLY exception
+    // is the server holding a blank value while we hold real data — adopting that
+    // would throw away the user's data for nothing.
+    if (entry.v !== localV && !(isEmptyValue(entry.v) && !isEmptyValue(localV))) {
+      // Write through the ORIGINAL setItem so we do not echo this back as a local
+      // edit (which would immediately re-upload it).
       Storage.prototype.setItem.call(localStorage, key, entry.v);
-      clock[key] = remoteT;
       changed = true;
-    } else if (localV !== null && localT > remoteT) {
-      // We are newer: declare our keys dirty so they get pushed.
-      dirty.add(key);
     }
   }
 
-  writeClock(clock);
-
-  // ---- Upload keys the server has NEVER seen -----------------------------
-  // The loop above only reconciles keys the SERVER already knows about (it
-  // iterates `remote`). Anything written before sync existed — pins you set last
-  // week, your entire attempt history — therefore stays on its original device
-  // forever, and a new browser silently shows none of it. That is exactly the
-  // "my pins and game history did not save on another browser" report: the server
-  // had only ever learned about progress_v2, because that was written AFTER sync
-  // was added.
-  //
-  // A local key with NO clock entry is one the wrapper never saw, i.e. it
-  // predates sync — stamp it now so it can propagate, and mark it dirty.
-  const localAll = collectLocal();
-  for (const k of Object.keys(localAll)) {
-    const knownToServer = Object.prototype.hasOwnProperty.call(remote, k);
-    const stamped = clock[k];
-    if (!knownToServer || stamped === undefined) {
-      clock[k] = Date.now();
-      dirty.add(k);
-    }
+  // Keys the server has never seen: contribute ours.
+  const local = collectLocal();
+  for (const k of Object.keys(local)) {
+    if (!Object.prototype.hasOwnProperty.call(remote, k)) dirty.add(k);
   }
-  writeClock(clock);
 
-  if (dirty.size > 0) schedulePush();
   return changed;
 }
 
 /**
- * Install sync. Safe to call more than once. `onChanged` fires when the server
- * had newer data (the caller typically reloads once).
+ * Install sync. Safe to call more than once. `onChanged` fires when the server's
+ * data replaced local data (the caller typically reloads once).
  */
 export function installStateSync(onChanged?: () => void): void {
   if (installed || typeof window === "undefined") return;
-  // Test/debug opt-out. Checked BEFORE wrapping setItem, so with sync off the app
+  // Test/debug opt-out, checked BEFORE wrapping setItem so with sync off the app
   // behaves exactly as it did before this module existed.
   if (syncDisabled()) return;
   installed = true;
   wrapSetItem();
 
   void pullState().then((changed) => {
+    hydrated = true;
+    // A first-time device has keys the server lacks — send them now that we have
+    // safely read the server's copy first.
+    if (dirty.size > 0) schedulePush();
+
     if (!changed) return;
-    // Reload once so the stores re-hydrate from the updated localStorage. The
-    // flag lives in sessionStorage and stops any reload loop.
+    // Reload once so the stores re-hydrate from the updated localStorage. The flag
+    // lives in sessionStorage and stops any reload loop.
     if (sessionStorage.getItem(RELOAD_FLAG) === "1") return;
     sessionStorage.setItem(RELOAD_FLAG, "1");
     onChanged?.();
   });
 
-  // Flush on the way out so the last edit is not lost when the tab closes.
+  // Flush on the way out so the last edit is not lost.
   window.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "hidden" && dirty.size > 0) {
       const keys = Array.from(dirty);
@@ -333,7 +271,7 @@ export function installStateSync(onChanged?: () => void): void {
   });
 }
 
-/** Manual escape hatch — e.g. a "Sync now" button or tests. */
+/** Manual escape hatch — a "Sync now" button, or tests. */
 export async function syncNow(): Promise<{ pushed: number; changed: boolean }> {
   const before = collectLocal();
   await push(Object.keys(before));
