@@ -174,14 +174,24 @@ export function PuzzleBoard({
       steps.push({ fen: g.fen(), lastMove: last });
     }
     gameRef.current = g;
+
+    // Where the solver stood BEFORE the line is played out — i.e. the position
+    // the first solution move is played FROM.
+    const startIdx = history.length - 1;
+
     if (steps.length > 0) {
-      setView(steps[steps.length - 1]);
       setHistory((h) => [...h, ...steps]);
-      setScrubIndex(null);
+      // Land on the START of the line, not the end. Showing the final position
+      // meant you had to rewind to move 1 every single time to see how the
+      // solution began; now ◀ ▶ walks FORWARD through it from the beginning.
+      // (The live position stays the true end — `view` is untouched and
+      // scrubbing is purely visual, so nothing is scored differently.)
+      setScrubIndex(startIdx);
     } else {
       setView({ fen: g.fen(), lastMove: last });
+      setScrubIndex(null);
     }
-  }, [moveIndex, solutionMoves]);
+  }, [moveIndex, solutionMoves, history.length]);
 
   // Initialize / reset whenever the puzzle changes
   useEffect(() => {
