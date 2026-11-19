@@ -38,7 +38,7 @@ let pass = 0, fail = 0;
 const ok = (c, m) => { c ? (pass++, console.log("  PASS", m)) : (fail++, console.log("  FAIL", m)); };
 
 // Server starts empty so we can prove what reaches it.
-await fetch("http://localhost:3000/api/state", { method: "DELETE" }).catch(() => {});
+await fetch("http://localhost:3000/api/state?confirm=1", { method: "DELETE" }).catch(() => {});
 
 const A = await connect(9245);
 await A.send("Page.enable");

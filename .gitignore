@@ -52,3 +52,7 @@ next-env.d.ts
 # if a scan catches them vanishing.
 scripts/_tmp-*
 scripts/.tmp-*
+
+# Wipes of the state store are archived here before clearing, so an
+# accidental/test wipe is always recoverable. Not history worth keeping.
+user-state/archive/

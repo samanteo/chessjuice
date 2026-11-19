@@ -43,7 +43,7 @@ const B = await openDevice("device-B");
 // Wipe the SHARED state first. Without this, both devices boot, pull the server's
 // copy from an earlier run, and start with progress they were supposed to make —
 // so the assertions below would fail for the wrong reason.
-await fetch("http://localhost:3000/api/state", { method: "DELETE" });
+await fetch("http://localhost:3000/api/state?confirm=1", { method: "DELETE" });
 
 // Start both from a clean slate.
 await boot(A);

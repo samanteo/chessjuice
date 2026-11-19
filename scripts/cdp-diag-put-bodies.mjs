@@ -2,7 +2,7 @@
 import { WebSocket } from "ws";
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-await fetch("http://localhost:3000/api/state", { method: "DELETE" });
+await fetch("http://localhost:3000/api/state?confirm=1", { method: "DELETE" });
 
 const list = await (await fetch("http://localhost:9247/json/list")).json();
 const t = list.find((x) => x.type === "page");

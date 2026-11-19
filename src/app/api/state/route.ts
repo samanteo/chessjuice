@@ -29,6 +29,8 @@ import path from "path";
 
 const STATE_DIR = path.join(process.cwd(), "user-state");
 const STATE_FILE = path.join(STATE_DIR, "state.json");
+/** Wipes go here first, so a cleared store is always recoverable. Gitignored. */
+const ARCHIVE_DIR = path.join(STATE_DIR, "archive");
 
 /** Only keys the app owns are accepted — never an arbitrary key from a request. */
 const ALLOWED_PREFIX = "puzzle_trainer_";
@@ -157,19 +159,49 @@ export async function PUT(req: Request) {
 }
 
 /**
- * DELETE /api/state — wipe the shared state.
+ * DELETE /api/state — clear the shared state, REVERSIBLY.
  *
  * Used by the sync verification script (which needs BOTH devices to start from a
  * genuinely empty server, or they immediately adopt state from an earlier run),
  * and available to the user as a deliberate "start my synced progress over".
  *
- * This clears the SERVER copy only; each browser keeps its own localStorage until
- * it next pulls. To fully reset, clear the browser too.
+ * DANGER this function used to have, and no longer does:
+ * `STATE_FILE` lives INSIDE the git repo, so the old `fs.rm(STATE_FILE)` deleted
+ * the tracked `user-state/state.json` — the user's only durable copy — and a test
+ * run (or a stray curl) wiped their real 109 puzzles off disk. It happened twice.
+ * So now a wipe:
+ *   1. ARCHIVES the current contents to `user-state/archive/state-<ts>.json`
+ *      before touching anything, so a wipe is always recoverable even if it was
+ *      not committed;
+ *   2. writes an EMPTY STORE rather than unlinking, so the tracked file always
+ *      exists and `backup-state.sh` cannot commit its absence;
+ *   3. refuses unless `?confirm=1`, so a bare `DELETE` cannot nuke it by accident.
  */
-export async function DELETE() {
+export async function DELETE(req: Request) {
+  const confirm = new URL(req.url).searchParams.get("confirm");
+  if (confirm !== "1") {
+    return NextResponse.json(
+      {
+        ok: false,
+        error: "refusing to wipe state without ?confirm=1",
+        hint: "This clears the shared progress store. Add ?confirm=1 if you mean it.",
+      },
+      { status: 400, headers: { "Cache-Control": "no-store" } }
+    );
+  }
+
   try {
-    await fs.rm(STATE_FILE, { force: true });
-    return NextResponse.json({ ok: true, cleared: true }, { headers: { "Cache-Control": "no-store" } });
+    const store = await readStore();
+    if (Object.keys(store).length > 0) {
+      const ts = new Date().toISOString().replace(/[:.]/g, "-");
+      await fs.mkdir(ARCHIVE_DIR, { recursive: true });
+      await fs.writeFile(path.join(ARCHIVE_DIR, `state-${ts}.json`), JSON.stringify(store), "utf8");
+    }
+    await writeStore({});
+    return NextResponse.json(
+      { ok: true, cleared: true, archived: Object.keys(store).length > 0 },
+      { headers: { "Cache-Control": "no-store" } }
+    );
   } catch {
     return NextResponse.json({ ok: false, error: "could not clear state" }, { status: 500 });
   }

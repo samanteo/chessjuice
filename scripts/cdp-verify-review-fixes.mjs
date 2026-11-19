@@ -33,7 +33,7 @@ await send("Network.setCacheDisabled", { cacheDisabled: true });
 await send("Emulation.setDeviceMetricsOverride", { width: 390, height: 844, deviceScaleFactor: 3, mobile: true });
 
 // Clean slate on both sides.
-await fetch("http://localhost:3000/api/state", { method: "DELETE" }).catch(() => {});
+await fetch("http://localhost:3000/api/state?confirm=1", { method: "DELETE" }).catch(() => {});
 await send("Page.navigate", { url: "http://localhost:3000/?cb=" + Date.now() });
 await sleep(13000);
 await ev(`localStorage.clear()`);

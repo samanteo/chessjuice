@@ -13,7 +13,7 @@ let pass = 0, fail = 0;
 const ok = (c, m) => { c ? (pass++, console.log("  PASS", m)) : (fail++, console.log("  FAIL", m)); };
 
 // Start clean so ANY key on the server proves the client pushed it.
-await fetch("http://localhost:3000/api/state", { method: "DELETE" });
+await fetch("http://localhost:3000/api/state?confirm=1", { method: "DELETE" });
 
 const list = await (await fetch("http://localhost:9247/json/list")).json();
 const t = list.find((x) => x.type === "page");
