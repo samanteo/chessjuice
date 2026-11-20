@@ -10,21 +10,21 @@
 # gateway, and (later) Tailscale. Nothing warns you; you find out when the phone
 # stops loading the app.
 #
-# So: if the Mac is ever drawing from the battery, say so on Telegram.
+# So: page ONLY when the battery is nearly empty while unplugged. Not merely for
+# being on battery — unplugging to carry the laptop is normal, and a warning every
+# 15 minutes about it is noise that gets ignored.
 #
 # CONTRACT
-#   - SILENT on stdout when healthy (on AC). A server watchdog that talks every
-#     15 minutes is a watchdog you learn to ignore.
-#   - Talks ONLY via `hermes send`, directly to Telegram. Not stdout — the cron
-#     job's own delivery has no channel in a CLI session.
+#   - SILENT on stdout when healthy. A server watchdog that talks every 15 minutes
+#     is a watchdog you learn to ignore.
+#   - Talks via scripts/notify.sh (the shared alert channel), NOT stdout — the cron
+#     job's own delivery has no channel attached in a CLI session.
 #   - Never exits non-zero: a watchdog failing is not something to page about.
 #
-# DEBOUNCE
-#   A 15-second unplug (moving the laptop, a loose connector) should not fire an
-#   alert. So a battery reading has to PERSIST before it counts:
-#     - below LOW_PCT  -> alert on the next run, no waiting (it's urgent)
-#     - otherwise      -> alert only once the Mac has been on battery >= SETTLE_S
-#   Re-alerts are rate-limited so a long outage cannot spam.
+# THRESHOLD
+#   LOW_PCT = 10. Below that there is roughly half an hour of runtime left, so
+#   there is still time to act and the message is never a false alarm. Re-alerts
+#   are capped at once per 30 minutes so a long low stretch cannot spam.
 
 set -uo pipefail
 
@@ -44,10 +44,8 @@ DRY_RUN="${BATTERY_WATCHDOG_DRY_RUN:-0}"
 # suite cannot catch that; only a real (non-dry) run proves the path works.
 NOTIFY="${NOTIFY_BIN:-$(cd "$(dirname "$0")" && pwd)/notify.sh}"
 
-LOW_PCT=40          # at/below this, alert immediately and urgently
-SETTLE_S=120        # a battery reading must persist this long to count
-NAG_S=$((6 * 3600)) # normal re-alert interval while on battery
-URGENT_NAG_S=1800   # re-alert interval once below LOW_PCT
+LOW_PCT=10          # only page below this — see the decision block
+URGENT_NAG_S=1800   # re-alert at most this often (30 min)
 
 log() { printf '%s %s\n' "$(date '+%F %T')" "$*" >>"$LOG" 2>/dev/null; }
 
@@ -85,57 +83,36 @@ pct="$(printf '%s\n' "$batt_out" | grep -o '[0-9]\{1,3\}%' | head -1 | tr -d '%'
 pct="${pct:-0}"
 remaining="$(printf '%s\n' "$batt_out" | grep -o '[0-9]\{1,2\}:[0-9]\{2\} remaining' | head -1)"
 
+# ONLY ONE CONDITION PAGES: unplugged AND below LOW_PCT.
+#
+# Deliberately NOT "you are on battery". Unplugging to carry the laptop somewhere
+# is completely normal, and a message every 15 minutes about it is noise that gets
+# ignored — which would defeat the whole point. 10% is roughly half an hour of
+# runtime: still time to act, and never a false alarm.
+if [ "$pct" -gt "$LOW_PCT" ]; then
+  # Comfortable. Clear any state so a later drop below LOW_PCT alerts at once
+  # instead of being suppressed by an old timestamp.
+  rm -f "$STATE"
+  exit 0
+fi
+
 now="$(date +%s)"
-since=""
 last_alert=0
-had_state=0
 if [ -f "$STATE" ]; then
-  had_state=1
   # shellcheck disable=SC1090
   . "$STATE" 2>/dev/null || true
 fi
-[ -z "${since:-}" ] && since="$now"
 last_alert="${last_alert:-0}"
 
-on_batt_for=$((now - since))
-since_last_alert=$((now - last_alert))
-
-should_alert=0
-urgent=0
-
-if [ "$pct" -le "$LOW_PCT" ]; then
-  # ALREADY LOW: alert on the very first sighting. The settle window exists to
-  # swallow a 15-second unplug, and at this level the benefit of waiting is nil —
-  # you want to know the moment it happens, not 15 minutes later.
-  urgent=1
-  if [ "$since_last_alert" -ge "$URGENT_NAG_S" ]; then
-    should_alert=1
-  fi
-elif [ "$had_state" -eq 0 ]; then
-  # First sighting and not low: start the settle window and stay quiet. A brief
-  # unplug must not page.
-  printf 'since=%s\nlast_alert=0\n' "$now" >"$STATE"
-  log "battery detected at ${pct}% (starting settle window)"
+# Rate-limit, so a long stretch below the threshold cannot spam (once per 30 min).
+if [ "$((now - last_alert))" -lt "$URGENT_NAG_S" ]; then
   exit 0
-elif [ "$on_batt_for" -ge "$SETTLE_S" ] && [ "$since_last_alert" -ge "$NAG_S" ]; then
-  should_alert=1
 fi
 
-if [ "$should_alert" -eq 1 ]; then
-  if [ "$urgent" -eq 1 ]; then
-    head_icon="🔴"
-    tail_txt="Battery is getting low. If it hits critical the Mac shuts down and takes the puzzle trainer + Telegram gateway with it."
-  else
-    head_icon="⚠️"
-    tail_txt="Plug the charger back in — if the battery runs out the Mac shuts down and the puzzle trainer + Telegram gateway go down with it."
-  fi
+msg="🔴 MacBook battery at ${pct}%${remaining:+ ($remaining)} — nearly empty.
 
-  msg="${head_icon} MacBook is on BATTERY — ${pct}%${remaining:+ ($remaining)}.
+Plug the charger in. If it runs out the Mac shuts down and takes the puzzle trainer (:3000) and the Telegram gateway with it."
 
-${tail_txt}"
-
-  notify "$msg"
-  printf 'since=%s\nlast_alert=%s\n' "$since" "$now" >"$STATE"
-fi
-
+notify "$msg"
+printf 'last_alert=%s\n' "$now" >"$STATE"
 exit 0

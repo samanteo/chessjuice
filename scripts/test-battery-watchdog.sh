@@ -3,11 +3,15 @@
 # Tests for the battery watchdog (scripts/check-battery.sh).
 #
 # It feeds the watchdog a FAKE `pmset` so every branch is exercised
-# deterministically — AC, on-battery, low-battery, the settle window, and the
-# re-alert rate limits — instead of waiting on the real power state.
+# deterministically instead of waiting on the real power state.
+#
+# The headline requirement these tests exist to protect: being on battery is NOT
+# itself an alert. Unplugging to carry the laptop around is normal, and a message
+# every 15 minutes about it is noise that gets ignored. ONLY a nearly-empty
+# battery (<= 10%) pages.
 #
 # Runs with BATTERY_WATCHDOG_DRY_RUN=1 so nothing is sent to real Telegram, and
-# with its own LOG/STATE files so the production state is never touched.
+# with its own LOG/STATE files so production state is never touched.
 
 set -uo pipefail
 
@@ -20,14 +24,12 @@ pass=0
 fail=0
 ok() { if [ "$1" = "1" ]; then pass=$((pass + 1)); printf '  PASS %s\n' "$2"; else fail=$((fail + 1)); printf '  FAIL %s\n' "$2"; fi; }
 
-# Fake pmset: echoes whatever is in $FAKE_PMSET_OUT.
 cat >"$FAKEBIN/pmset" <<'EOF'
 #!/bin/bash
 printf '%s\n' "${FAKE_PMSET_OUT:-}"
 EOF
 chmod +x "$FAKEBIN/pmset"
 
-# Run the watchdog with a given fake power reading. Never sends (dry run).
 run_watchdog() {
   FAKE_PMSET_OUT="$1" \
     PATH="$FAKEBIN:$PATH" \
@@ -37,12 +39,10 @@ run_watchdog() {
     "$SCRIPT"
 }
 
-# Number of alerts recorded since the log was last reset.
-# NOTE: `grep -c` prints "0" AND exits 1 when there are no matches, so a
-# `|| echo 0` fallback appends a SECOND line and every `= "0"` comparison fails.
-# The command substitution captures stdout regardless of exit status, so the
-# count is taken as-is.
-alerts_since_reset() {
+# `grep -c` prints "0" AND exits 1 with no match, so a `|| echo 0` fallback would
+# append a SECOND line and break every `= "0"` comparison. Command substitution
+# captures stdout regardless of exit status, so take the count as-is.
+n_alerts() {
   local n
   n="$(grep -c 'DRY-RUN would send' "$TLOG" 2>/dev/null)"
   printf '%s' "${n:-0}"
@@ -50,76 +50,55 @@ alerts_since_reset() {
 reset_log() { : >"$TLOG"; }
 clear_state() { rm -f "$TSTATE"; }
 
-# Fake pmset outputs.
-AC='Now drawing from '"'"'AC Power'"'"'
- -InternalBattery-0 (id=1)	100%; charged; 0:00 remaining present: true'
-
-BATT_HIGH='Now drawing from '"'"'Battery Power'"'"'
- -InternalBattery-0 (id=1)	85%; discharging; 4:15 remaining present: true'
-
-BATT_LOW='Now drawing from '"'"'Battery Power'"'"'
- -InternalBattery-0 (id=1)	25%; discharging; 1:20 remaining present: true'
+ac() { printf "Now drawing from 'AC Power'\n -InternalBattery-0 (id=1)\t%s%%; charged; 0:00 remaining present: true" "$1"; }
+batt() { printf "Now drawing from 'Battery Power'\n -InternalBattery-0 (id=1)\t%s%%; discharging; 1:20 remaining present: true" "$1"; }
 
 echo
 echo "=== battery watchdog: $(basename "$SCRIPT") ==="
 
-# ---- 1. AC power: silent, and any battery state is cleared -------------------
+# ---- 1. on AC: silent, and state is cleared --------------------------------
 clear_state; reset_log
-run_watchdog "$AC"
-ok "$([ "$(alerts_since_reset)" = "0" ] && echo 1 || echo 0)" "on AC power -> stays silent"
-ok "$([ ! -f "$TSTATE" ] && echo 1 || echo 0)" "on AC power -> clears the battery state file"
+run_watchdog "$(ac 100)"
+ok "$([ "$(n_alerts)" = "0" ] && echo 1 || echo 0)" "on AC power -> stays silent"
+ok "$([ ! -f "$TSTATE" ] && echo 1 || echo 0)" "on AC power -> clears the state file"
 
-# ---- 2. AC while a battery state existed (so the next event alerts at once) ---
-printf 'since=1\nlast_alert=1\n' >"$TSTATE"
-run_watchdog "$AC"
-ok "$([ ! -f "$TSTATE" ] && echo 1 || echo 0)" "returning to AC clears a stale battery state"
-
-# ---- 3. Battery, first sighting, not low: settle window, silent --------------
+# ---- 2. THE HEADLINE CASE: unplugged but healthy -> SILENT ------------------
+# This is the whole point of the LOW_PCT threshold.
 clear_state; reset_log
-run_watchdog "$BATT_HIGH"
-ok "$([ "$(alerts_since_reset)" = "0" ] && echo 1 || echo 0)" "battery 85% first sighting -> silent (settle window opens)"
-ok "$([ -f "$TSTATE" ] && echo 1 || echo 0)" "battery 85% first sighting -> state file written"
-ok "$(grep -q 'starting settle window' "$TLOG" && echo 1 || echo 0)" "battery 85% first sighting -> logged as settle window"
+run_watchdog "$(batt 85)"
+ok "$([ "$(n_alerts)" = "0" ] && echo 1 || echo 0)" "unplugged at 85% -> SILENT (being on battery is not an alert)"
+run_watchdog "$(batt 40)"
+ok "$([ "$(n_alerts)" = "0" ] && echo 1 || echo 0)" "unplugged at 40% -> SILENT"
+run_watchdog "$(batt 11)"
+ok "$([ "$(n_alerts)" = "0" ] && echo 1 || echo 0)" "unplugged at 11% -> SILENT (just above the threshold)"
 
-# ---- 4. Battery again IMMEDIATELY (inside SETTLE_S): still silent ------------
-reset_log
-run_watchdog "$BATT_HIGH"
-ok "$([ "$(alerts_since_reset)" = "0" ] && echo 1 || echo 0)" "battery 85% a moment later -> still silent (brief unplug swallowed)"
-
-# ---- 5. Battery, settle window elapsed: ALERTS ------------------------------
-# Backdate "since" so the Mac looks like it has been on battery for an hour.
-printf 'since=%s\nlast_alert=0\n' "$(( $(date +%s) - 3600 ))" >"$TSTATE"
-reset_log
-run_watchdog "$BATT_HIGH"
-ok "$([ "$(alerts_since_reset)" = "1" ] && echo 1 || echo 0)" "battery 85% after the settle window -> alerts once"
-ok "$(grep -q '⚠️' "$TLOG" && echo 1 || echo 0)" "battery 85% alert is the WARNING variant"
-
-# ---- 6. Re-alert rate limit: does not nag within NAG_S ----------------------
-reset_log
-run_watchdog "$BATT_HIGH"
-ok "$([ "$(alerts_since_reset)" = "0" ] && echo 1 || echo 0)" "battery 85% again -> silent (rate limited, no nagging)"
-
-# ---- 7. LOW battery: alerts on the FIRST sighting, no settle wait -----------
+# ---- 3. below the threshold: ALERTS ----------------------------------------
 clear_state; reset_log
-run_watchdog "$BATT_LOW"
-ok "$([ "$(alerts_since_reset)" = "1" ] && echo 1 || echo 0)" "battery 25% first sighting -> alerts immediately (no settle wait)"
-ok "$(grep -q '🔴' "$TLOG" && echo 1 || echo 0)" "battery 25% alert is the URGENT variant"
-ok "$(grep -q '25%' "$TLOG" && echo 1 || echo 0)" "battery 25% alert includes the real percentage"
+run_watchdog "$(batt 10)"
+ok "$([ "$(n_alerts)" = "1" ] && echo 1 || echo 0)" "unplugged at 10% -> alerts (at the threshold)"
+clear_state; reset_log
+run_watchdog "$(batt 7)"
+ok "$([ "$(n_alerts)" = "1" ] && echo 1 || echo 0)" "unplugged at 7% -> alerts"
 
-# ---- 8. Low battery does not repeat inside URGENT_NAG_S ---------------------
+# ---- 4. the alert says the percentage and the real consequence --------------
+ok "$(grep -q '7%' "$TLOG" && echo 1 || echo 0)" "alert includes the actual percentage"
+ok "$(grep -qi 'puzzle trainer' "$TLOG" && echo 1 || echo 0)" "alert explains the consequence (puzzle trainer goes down)"
+
+# ---- 5. rate limit: no spam while it stays low -----------------------------
 reset_log
-run_watchdog "$BATT_LOW"
-ok "$([ "$(alerts_since_reset)" = "0" ] && echo 1 || echo 0)" "battery 25% again -> silent (rate limited)"
+run_watchdog "$(batt 7)"
+ok "$([ "$(n_alerts)" = "0" ] && echo 1 || echo 0)" "still at 7% a moment later -> silent (rate limited)"
 
-# ---- 9. The alert names the consequence (uptime, not just the battery) ------
-reset_log; clear_state
-run_watchdog "$BATT_LOW"
-ok "$(grep -qi 'puzzle trainer' "$TLOG" && echo 1 || echo 0)" "alert explains the real consequence (puzzle trainer goes down)"
+# ---- 6. plugging in then dropping low again alerts at once -----------------
+run_watchdog "$(ac 12)"
+reset_log
+run_watchdog "$(batt 6)"
+ok "$([ "$(n_alerts)" = "1" ] && echo 1 || echo 0)" "charge then drop low again -> alerts immediately (AC clears the state)"
 
-# ---- 10. NON-dry wiring: the alert reaches the notifier, and the path resolves
-# The dry-run cases above all return BEFORE notify() runs, so they prove nothing
-# about the delivery path. This stubs the notifier and asserts it was called —
-# the only test that catches a broken NOTIFY path or a bad interpreter.
+# ---- 7. NON-dry wiring: the alert reaches the notifier, and the path resolves
+# The dry-run cases return BEFORE notify() runs, so they prove nothing about
+# delivery. This stubs the notifier — the only test that catches a broken NOTIFY
+# path (e.g. the GNU-only `readlink -f` that BSD/macOS rejects).
 STUB="$(mktemp -d)"
 RECV="$(mktemp -u)"
 cat >"$STUB/notify.sh" <<'EOF'
@@ -129,20 +108,20 @@ exit 0
 EOF
 chmod +x "$STUB/notify.sh"
 clear_state
-FAKE_PMSET_OUT="$BATT_LOW" PATH="$FAKEBIN:$PATH" \
+FAKE_PMSET_OUT="$(batt 8)" PATH="$FAKEBIN:$PATH" \
   NOTIFY_BIN="$STUB/notify.sh" NOTIFY_RECEIVED="$RECV" \
   BATTERY_WATCHDOG_LOG="$TLOG" BATTERY_WATCHDOG_STATE="$TSTATE" \
   "$SCRIPT"
 ok "$([ -s "$RECV" ] && echo 1 || echo 0)" "non-dry run actually reaches the notifier (path resolves)"
-ok "$(grep -q 'BATTERY' "$RECV" && echo 1 || echo 0)" "the notifier receives the real alert text"
+ok "$(grep -q 'nearly empty' "$RECV" && echo 1 || echo 0)" "the notifier receives the real alert text"
 rm -rf "$STUB" "$RECV"
 
-# ---- 11. Never exits non-zero (a watchdog must not page about itself) -------
+# ---- 8. always exits 0 ------------------------------------------------------
 clear_state
-run_watchdog "$BATT_LOW" >/dev/null 2>&1
-ok "$([ "$?" = "0" ] && echo 1 || echo 0)" "always exits 0"
-run_watchdog "$AC" >/dev/null 2>&1
-ok "$([ "$?" = "0" ] && echo 1 || echo 0)" "exits 0 on AC too"
+run_watchdog "$(batt 8)" >/dev/null 2>&1
+ok "$([ "$?" = "0" ] && echo 1 || echo 0)" "exits 0 when alerting"
+run_watchdog "$(ac 100)" >/dev/null 2>&1
+ok "$([ "$?" = "0" ] && echo 1 || echo 0)" "exits 0 on AC"
 
 rm -rf "$FAKEBIN" "$TLOG" "$TSTATE"
 
