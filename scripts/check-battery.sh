@@ -21,12 +21,14 @@
 #     job's own delivery has no channel attached in a CLI session.
 #   - Never exits non-zero: a watchdog failing is not something to page about.
 #
-# THRESHOLD
-#   LOW_PCT = 10. Below that there is roughly half an hour of runtime left, so
-#   there is still time to act and the message is never a false alarm.
-#   ONE message per low episode — it does NOT repeat while the battery stays low,
-#   so it cannot nag no matter how long you leave it. Plugging in resets it, so
-#   the next time it drops low you are told again (once).
+# THRESHOLDS
+#   LOW_PCT  = 10 — first warning, roughly half an hour of runtime left.
+#   CRIT_PCT = 5  — second warning, the last chance to plug in.
+#   ONE message per threshold per low episode: it does NOT repeat while the
+#   battery stays low, so it cannot nag. Plugging in (or climbing back above 10%)
+#   clears both markers, so the next episode is announced once more.
+#   If the battery skips past 10% between ticks (12 -> 4), only the critical
+#   message is sent — no point paging twice in the same run.
 
 set -uo pipefail
 
@@ -46,7 +48,12 @@ DRY_RUN="${BATTERY_WATCHDOG_DRY_RUN:-0}"
 # suite cannot catch that; only a real (non-dry) run proves the path works.
 NOTIFY="${NOTIFY_BIN:-$(cd "$(dirname "$0")" && pwd)/notify.sh}"
 
-LOW_PCT=10          # only page below this — see the decision block
+LOW_PCT=10          # first warning — see the decision block
+CRIT_PCT=5          # second, critical warning
+# One marker PER threshold, derived from the base path so the test suite can
+# still point BATTERY_WATCHDOG_STATE at its own sandbox.
+MARK_LOW="${STATE}.low"
+MARK_CRIT="${STATE}.crit"
 
 log() { printf '%s %s\n' "$(date '+%F %T')" "$*" >>"$LOG" 2>/dev/null; }
 
@@ -76,9 +83,9 @@ source_line="$(printf '%s\n' "$batt_out" | head -1)"
 
 case "$source_line" in
   *"'AC Power'"* | *"AC attached"*)
-    # Healthy. Clear the state so the NEXT battery event alerts immediately
+    # Healthy. Clear the markers so the NEXT battery event alerts immediately
     # instead of being suppressed by the old timestamps.
-    rm -f "$STATE"
+    rm -f "$MARK_LOW" "$MARK_CRIT" "$STATE"
     exit 0
     ;;
 esac
@@ -88,39 +95,49 @@ pct="$(printf '%s\n' "$batt_out" | grep -o '[0-9]\{1,3\}%' | head -1 | tr -d '%'
 pct="${pct:-0}"
 remaining="$(printf '%s\n' "$batt_out" | grep -o '[0-9]\{1,2\}:[0-9]\{2\} remaining' | head -1)"
 
-# ONLY ONE CONDITION PAGES: unplugged AND below LOW_PCT.
+# Pages ONLY when unplugged AND below a threshold.
 #
 # Deliberately NOT "you are on battery". Unplugging to carry the laptop somewhere
 # is completely normal, and a message every 15 minutes about it is noise that gets
-# ignored — which would defeat the whole point. 10% is roughly half an hour of
-# runtime: still time to act, and never a false alarm.
+# ignored — which would defeat the whole point.
 if [ "$pct" -gt "$LOW_PCT" ]; then
-  # Recovered. Clear the marker so a LATER drop below the threshold alerts again.
-  rm -f "$STATE"
+  # Recovered above the first threshold. Clear BOTH markers so a later drop
+  # announces each tier again.
+  rm -f "$MARK_LOW" "$MARK_CRIT" "$STATE"
   exit 0
 fi
 
-# ONE message per low episode. The state file is a plain "already told them"
-# marker, not a re-alert timer: a battery sitting at 6% for an hour would
+# Two tiers, one message each per low episode. The markers are plain "already
+# told them" flags, not re-alert timers: a battery sitting at 6% for an hour would
 # otherwise nag on every 15-minute tick, which is exactly the noise that trains
-# you to ignore a watchdog. Plugging in (or climbing back above the threshold)
-# clears the marker, so the next episode is announced once more.
-if [ -f "$STATE" ]; then
+# you to ignore a watchdog. Plugging in (or climbing back above 10%) clears them.
+#
+# Below 5% only the CRITICAL message goes out — if the battery skipped past the
+# 10% tier between ticks, paging twice in one run is just noise.
+if [ "$pct" -le "$CRIT_PCT" ]; then
+  [ -f "$MARK_CRIT" ] && exit 0
+  msg="🔴 MacBook battery CRITICAL at ${pct}%${remaining:+ ($remaining)} — about to shut down.
+
+Plug the charger in NOW. When it runs out the Mac hard-shuts and takes the puzzle trainer (:3000) and the Telegram gateway with it."
+  # Mark ONLY on real delivery — a failed send must retry on the next tick.
+  if notify "$msg"; then
+    printf 'alerted_at=%s\n' "$(date +%s)" >"$MARK_CRIT"
+    # Suppress the 10% tier too: this episode already got its warning.
+    printf 'alerted_at=%s\n' "$(date +%s)" >"$MARK_LOW"
+  else
+    log "critical alert FAILED to send — will retry on the next tick (no marker written)"
+  fi
   exit 0
 fi
 
-msg="🔴 MacBook battery at ${pct}%${remaining:+ ($remaining)} — nearly empty.
+# 6-10%: the first warning.
+[ -f "$MARK_LOW" ] && exit 0
+msg="🟠 MacBook battery at ${pct}%${remaining:+ ($remaining)} — running low.
 
 Plug the charger in. If it runs out the Mac shuts down and takes the puzzle trainer (:3000) and the Telegram gateway with it."
-
-# ONLY mark the episode as announced if the message actually reached Telegram.
-# Writing the marker unconditionally is the "send once, forever" bug: a failed
-# send (curl exits 0 on an HTTP 401 without --fail) still wrote the marker, so
-# the watchdog went silent for the rest of the episode and never retried.
-# Now a failed send leaves no marker, so the next 15-minute tick tries again.
 if notify "$msg"; then
-  printf 'alerted_at=%s\n' "$(date +%s)" >"$STATE"
+  printf 'alerted_at=%s\n' "$(date +%s)" >"$MARK_LOW"
 else
-  log "will retry on the next tick (no marker written)"
+  log "low alert FAILED to send — will retry on the next tick (no marker written)"
 fi
 exit 0

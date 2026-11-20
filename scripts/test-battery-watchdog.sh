@@ -48,7 +48,7 @@ n_alerts() {
   printf '%s' "${n:-0}"
 }
 reset_log() { : >"$TLOG"; }
-clear_state() { rm -f "$TSTATE"; }
+clear_state() { rm -f "$TSTATE" "$TSTATE.low" "$TSTATE.crit"; }
 
 ac() { printf "Now drawing from 'AC Power'\n -InternalBattery-0 (id=1)\t%s%%; charged; 0:00 remaining present: true" "$1"; }
 batt() { printf "Now drawing from 'Battery Power'\n -InternalBattery-0 (id=1)\t%s%%; discharging; 1:20 remaining present: true" "$1"; }
@@ -60,7 +60,7 @@ echo "=== battery watchdog: $(basename "$SCRIPT") ==="
 clear_state; reset_log
 run_watchdog "$(ac 100)"
 ok "$([ "$(n_alerts)" = "0" ] && echo 1 || echo 0)" "on AC power -> stays silent"
-ok "$([ ! -f "$TSTATE" ] && echo 1 || echo 0)" "on AC power -> clears the state file"
+ok "$([ ! -f "$TSTATE.low" ] && [ ! -f "$TSTATE.crit" ] && echo 1 || echo 0)" "on AC power -> clears both threshold markers"
 
 # ---- 2. THE HEADLINE CASE: unplugged but healthy -> SILENT ------------------
 # This is the whole point of the LOW_PCT threshold.
@@ -91,14 +91,24 @@ clear_state; reset_log
 for _ in 1 2 3 4 5; do run_watchdog "$(batt 6)"; done
 ok "$([ "$(n_alerts)" = "1" ] && echo 1 || echo 0)" "five ticks at 6% -> exactly ONE alert (no repeats)"
 
-# ---- 6. plugging in then dropping low again alerts once more ---------------
+# ---- 6. the SECOND tier: 5% is a separate, final warning -------------------
 run_watchdog "$(ac 12)"
 reset_log
 run_watchdog "$(batt 6)"
-ok "$([ "$(n_alerts)" = "1" ] && echo 1 || echo 0)" "charge then drop low again -> alerts once (AC resets the marker)"
+ok "$([ "$(n_alerts)" = "1" ] && echo 1 || echo 0)" "charge then drop low again -> alerts once (AC resets the markers)"
 reset_log
 run_watchdog "$(batt 5)"
-ok "$([ "$(n_alerts)" = "0" ] && echo 1 || echo 0)" "and then stays silent again for that episode"
+ok "$([ "$(n_alerts)" = "1" ] && echo 1 || echo 0)" "dropping to 5% -> a SECOND, critical alert"
+ok "$(grep -qi 'critical' "$TLOG" && echo 1 || echo 0)" "the 5% alert is worded as critical"
+reset_log
+run_watchdog "$(batt 4)"
+ok "$([ "$(n_alerts)" = "0" ] && echo 1 || echo 0)" "and stays silent below 5% for that episode"
+
+# ---- 6b. a skip straight past 10% pages ONCE, not twice -------------------
+clear_state; reset_log
+run_watchdog "$(batt 12)"
+run_watchdog "$(batt 4)"
+ok "$([ "$(n_alerts)" = "1" ] && echo 1 || echo 0)" "12% -> 4% in one tick -> ONE critical alert (no duplicate 10% page)"
 
 # ---- 7. NON-dry wiring: the alert reaches the notifier, and the path resolves
 # The dry-run cases return BEFORE notify() runs, so they prove nothing about
@@ -118,7 +128,7 @@ FAKE_PMSET_OUT="$(batt 8)" PATH="$FAKEBIN:$PATH" \
   BATTERY_WATCHDOG_LOG="$TLOG" BATTERY_WATCHDOG_STATE="$TSTATE" \
   "$SCRIPT"
 ok "$([ -s "$RECV" ] && echo 1 || echo 0)" "non-dry run actually reaches the notifier (path resolves)"
-ok "$(grep -q 'nearly empty' "$RECV" && echo 1 || echo 0)" "the notifier receives the real alert text"
+ok "$(grep -q 'running low' "$RECV" && echo 1 || echo 0)" "the notifier receives the real alert text"
 rm -rf "$STUB" "$RECV"
 
 # ---- 8. always exits 0 ------------------------------------------------------
