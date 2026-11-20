@@ -56,11 +56,15 @@ notify() {
     log "DRY-RUN would send: $msg"
     return 0
   fi
+  # Return the REAL delivery result. This used to return 0 unconditionally and
+  # log "alerted" even when notify.sh had delivered nothing, which is how the
+  # "already told them" marker got written for an alert that never arrived.
   if "$NOTIFY" "$msg" >>"$LOG" 2>&1; then
     log "alerted: $msg"
-  else
-    log "ALERT FAILED to send: $msg"
+    return 0
   fi
+  log "ALERT FAILED to send: $msg"
+  return 1
 }
 
 # --- read power source -------------------------------------------------------
@@ -109,6 +113,14 @@ msg="🔴 MacBook battery at ${pct}%${remaining:+ ($remaining)} — nearly empty
 
 Plug the charger in. If it runs out the Mac shuts down and takes the puzzle trainer (:3000) and the Telegram gateway with it."
 
-notify "$msg"
-printf 'alerted_at=%s\n' "$(date +%s)" >"$STATE"
+# ONLY mark the episode as announced if the message actually reached Telegram.
+# Writing the marker unconditionally is the "send once, forever" bug: a failed
+# send (curl exits 0 on an HTTP 401 without --fail) still wrote the marker, so
+# the watchdog went silent for the rest of the episode and never retried.
+# Now a failed send leaves no marker, so the next 15-minute tick tries again.
+if notify "$msg"; then
+  printf 'alerted_at=%s\n' "$(date +%s)" >"$STATE"
+else
+  log "will retry on the next tick (no marker written)"
+fi
 exit 0
