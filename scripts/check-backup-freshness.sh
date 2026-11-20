@@ -60,7 +60,17 @@ else
   last_line=$(tail -1 "$LOG" 2>/dev/null)
   last_ts=$(echo "$last_line" | cut -d' ' -f1)
   if [ -n "$last_ts" ]; then
-    last_epoch=$(date -j -f "%Y-%m-%dT%H:%M:%S%z" "$last_ts" "+%s" 2>/dev/null || echo 0)
+    # NOTE: `date -j -f "%Y-%m-%dT%H:%M:%S%z"` CANNOT parse the log's ISO stamps
+    # ("+07:00" has a colon; %z wants "+0700"). It failed every time, so this
+    # check silently never fired — a dead watchdog that always looked healthy.
+    # python3's fromisoformat handles the colon form correctly.
+    last_epoch=$(python3 -c "
+import sys, datetime
+try:
+    print(int(datetime.datetime.fromisoformat(sys.argv[1]).timestamp()))
+except Exception:
+    print(0)
+" "$last_ts" 2>/dev/null || echo 0)
     if [ "$last_epoch" -gt 0 ]; then
       age_h=$(( ( $(date +%s) - last_epoch ) / 3600 ))
       if [ "$age_h" -ge "$STALE_HOURS" ]; then
