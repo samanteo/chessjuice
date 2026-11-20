@@ -46,6 +46,97 @@ const OFF_KEY = "puzzle_trainer_sync";
 /** Debounce before flushing changes to the server. */
 const PUSH_DEBOUNCE_MS = 600;
 
+/**
+ * Keys that are APPEND-ONLY history, not a single value.
+ *
+ * These are the user's progress: an array of attempts and a map of per-puzzle
+ * review state. Replacing them wholesale means "last device to write wins" and
+ * the other device's puzzles vanish — which is exactly what happened when the
+ * phone solved puzzles and the laptop's stale copy was pushed over them.
+ *
+ * So these two keys are MERGED on every read and every write: the union of
+ * attempts (deduped by puzzle + timestamp) and the newer review state per
+ * puzzle. Nothing is ever dropped, whichever device writes last.
+ */
+const MERGE_KEYS = new Set(["puzzle_trainer_attempts", "puzzle_trainer_progress_v2"]);
+
+/** Union of two attempt arrays, deduped by puzzle id + timestamp, in order. */
+function mergeAttempts(a: string, b: string): string | null {
+  try {
+    const A = JSON.parse(a);
+    const B = JSON.parse(b);
+    if (!Array.isArray(A) || !Array.isArray(B)) return null;
+    const seen = new Set<string>();
+    const out: unknown[] = [];
+    for (const x of [...A, ...B]) {
+      const o = x as { puzzleId?: string; timestamp?: string; result?: string };
+      const k = `${o?.puzzleId ?? ""}|${o?.timestamp ?? ""}|${o?.result ?? ""}`;
+      if (seen.has(k)) continue;
+      seen.add(k);
+      out.push(x);
+    }
+    out.sort((x, y) =>
+      String((x as { timestamp?: string })?.timestamp ?? "").localeCompare(
+        String((y as { timestamp?: string })?.timestamp ?? "")
+      )
+    );
+    return JSON.stringify(out);
+  } catch {
+    return null;
+  }
+}
+
+/** Per-puzzle review state: keep whichever entry has more attempts, then later due. */
+function mergeProgress(a: string, b: string): string | null {
+  try {
+    const A = JSON.parse(a);
+    const B = JSON.parse(b);
+    const ok = (v: unknown) =>
+      v && typeof v === "object" && !Array.isArray(v);
+    if (!ok(A) || !ok(B)) return null;
+    const out: Record<string, unknown> = { ...(A as Record<string, unknown>) };
+    for (const [k, v] of Object.entries(B as Record<string, unknown>)) {
+      const cur = out[k] as { at?: number; due?: string } | undefined;
+      const nxt = v as { at?: number; due?: string };
+      if (!cur) {
+        out[k] = v;
+        continue;
+      }
+      const na = Number(nxt?.at ?? 0);
+      const ca = Number(cur?.at ?? 0);
+      const nd = Date.parse(nxt?.due ?? "");
+      const cd = Date.parse(cur?.due ?? "");
+      if (na > ca || (na === ca && nd > cd)) out[k] = v;
+    }
+    return JSON.stringify(out);
+  } catch {
+    return null;
+  }
+}
+
+/** Merge two raw values for a merge key. Returns null when not mergeable. */
+function mergeValue(key: string, localV: string, remoteV: string): string | null {
+  if (key === "puzzle_trainer_attempts") return mergeAttempts(localV, remoteV);
+  if (key === "puzzle_trainer_progress_v2") return mergeProgress(localV, remoteV);
+  return null;
+}
+
+/**
+ * Is the user mid-attempt right now?
+ *
+ * The old guard asked "is a board on screen?" — but the board is PERMANENTLY
+ * mounted on Training and Review, so a refresh was deferred forever and the
+ * laptop never showed the phone's progress. The real question is whether an
+ * attempt has MOVES in it: before the first move, reloading loses nothing.
+ */
+function attemptLive(): boolean {
+  try {
+    return !!document.querySelector('[data-attempt="live"]');
+  } catch {
+    return false;
+  }
+}
+
 let installed = false;
 /** Does this stored value carry no user data? (`[]`, `{}`, `""`, `null`) */
 function isEmptyValue(v: string | null | undefined): boolean {
@@ -97,18 +188,20 @@ async function refreshFromServer(): Promise<void> {
   }
   if (!changed) return;
 
-  // A board on screen means the user is mid-solve.
-  if (document.querySelector("[data-board-context]")) {
+  // Only defer when the user has actually played a move in this attempt —
+  // reloading then would throw away a half-solved puzzle. A board that is merely
+  // mounted (the normal state on Training and Review) is NOT a reason to defer.
+  if (attemptLive()) {
     pendingRefresh = true;
     return;
   }
   window.location.reload();
 }
 
-/** Apply a deferred refresh once the board is gone (checked on each focus). */
+/** Apply a deferred refresh once the current attempt is over (checked on focus). */
 function applyPendingRefresh(): void {
   if (!pendingRefresh) return;
-  if (document.querySelector("[data-board-context]")) return;
+  if (attemptLive()) return;
   pendingRefresh = false;
   window.location.reload();
 }
@@ -228,6 +321,21 @@ function wrapSetItem(): void {
 
   const original = proto.setItem;
   const wrapped = function (this: Storage, key: string, value: string) {
+    // Progress keys are merged, never replaced. A store that still holds the
+    // pre-sync snapshot would otherwise write its stale array over the merged
+    // one and push the loss to the server.
+    if (MERGE_KEYS.has(key)) {
+      try {
+        const prev = this.getItem(key);
+        if (prev !== null && prev !== value) {
+          const merged = mergeValue(key, prev, value);
+          // Empty incoming means a deliberate clear — honour it.
+          if (merged !== null && !isEmptyValue(value)) value = merged;
+        }
+      } catch {
+        /* fall through and store the raw value */
+      }
+    }
     original.call(this, key, value);
     try {
       if (isStateKey(key)) {
@@ -273,9 +381,20 @@ export async function pullState(): Promise<boolean> {
     // is the server holding a blank value while we hold real data — adopting that
     // would throw away the user's data for nothing.
     if (entry.v !== localV && !(isEmptyValue(entry.v) && !isEmptyValue(localV))) {
+      // Progress keys: adopt the UNION, not the server's copy. Both devices may
+      // have solved different puzzles since the last sync; taking either side
+      // alone deletes the other's work. The merged value is uploaded afterwards.
+      let next = entry.v;
+      if (MERGE_KEYS.has(key) && localV !== null) {
+        const merged = mergeValue(key, localV, entry.v);
+        if (merged !== null) {
+          next = merged;
+          if (merged !== entry.v) dirty.add(key);
+        }
+      }
       // Write through the ORIGINAL setItem so we do not echo this back as a local
       // edit (which would immediately re-upload it).
-      Storage.prototype.setItem.call(localStorage, key, entry.v);
+      Storage.prototype.setItem.call(localStorage, key, next);
       changed = true;
     }
   }

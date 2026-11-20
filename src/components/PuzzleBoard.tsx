@@ -133,6 +133,13 @@ export function PuzzleBoard({
   const [moveIndex, setMoveIndex] = useState(0); // index of next expected SOLVER move
   const [solverColor, setSolverColor] = useState<"white" | "black">("white");
   const [status, setStatus] = useState<"playing" | "correct" | "wrong">("playing");
+  /**
+   * Has the SOLVER touched this attempt yet? The sync engine reads this (via
+   * `data-attempt`) to decide whether a page reload would destroy work in
+   * progress. `moveIndex` is no good: it starts at 1 when the puzzle opens with
+   * the opponent's move, so a freshly served puzzle would look "in progress".
+   */
+  const [attemptTouched, setAttemptTouched] = useState(false);
   const [feedback, setFeedback] = useState<string>("");
   const [hintSquare, setHintSquare] = useState<Key | null>(null);
   const [hintUsed, setHintUsed] = useState(false);
@@ -269,6 +276,7 @@ export function PuzzleBoard({
       setMoveIndex(0);
     }
     setStatus("playing");
+    setAttemptTouched(false);
     setFeedback("");
     setHintSquare(null);
     setHintUsed(false);
@@ -459,6 +467,10 @@ export function PuzzleBoard({
         setScrubIndex(null);
         return;
       }
+      // From here on the user has really engaged with this attempt, so a reload
+      // would lose something. Mark it before any legality check: even a rejected
+      // drag means they are mid-solve.
+      setAttemptTouched(true);
       const expected = solutionMoves[moveIndex];
       if (!expected) return;
       const expFrom = expected.slice(0, 2);
@@ -635,8 +647,13 @@ export function PuzzleBoard({
     }
   }, [view.fen, highlightCheck]);
 
+  // "live" = the SOLVER has engaged with this attempt and it is still open. The
+  // sync engine uses this to decide whether a reload would destroy work in
+  // progress; a board that is merely mounted (no solver move yet) is safe.
+  const attemptLive = status === "playing" && attemptTouched;
+
   return (
-    <div className="board-panel">
+    <div className="board-panel" data-attempt={attemptLive ? "live" : "idle"}>
       {/* Head */}
       <div className="board-panel__head">
         <div className="board-panel__titles">
