@@ -1,114 +1,128 @@
 /**
- * Side-by-side comparison of the TRAINING board and the REVIEW board.
+ * Screenshot + measure the Training board and the Review board, so they can be
+ * compared like-for-like. Saves PNGs for visual comparison and prints an exact
+ * geometry table for the numeric one.
  *
- * Drives the real flow at each viewport (train -> fail -> Review -> Review Due)
- * and captures a screenshot of each board plus every box the layout depends on,
- * so the two can be diffed numerically as well as visually.
+ * Drives the REAL user flow — quick start a training puzzle, fail it (which is
+ * what puts something in the review queue), then Review Due — rather than seeding
+ * localStorage, because the store only hydrates puzzles that exist in the 6.19M DB.
  */
 import { WebSocket } from "ws";
-import { writeFileSync } from "fs";
+import fs from "fs";
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-const list = await (await fetch("http://localhost:9245/json/list")).json();
-const p = list.find((t) => t.type === "page");
-const ws = new WebSocket(p.webSocketDebuggerUrl, { perMessageDeflate: false, maxPayload: 2 ** 28 });
-await new Promise((r) => ws.once("open", r));
-let id = 0; const pending = new Map(); const events = [];
-ws.on("message", (raw) => { const m = JSON.parse(raw.toString()); if (m.id && pending.has(m.id)) { pending.get(m.id)(m); pending.delete(m.id); } else if (m.method) events.push(m); });
-const send = (m, params = {}) => new Promise((res) => { const i = ++id; pending.set(i, res); ws.send(JSON.stringify({ id: i, method: m, params })); });
-const ev = async (e) => (await send("Runtime.evaluate", { expression: e, returnByValue: true, awaitPromise: true })).result?.result?.value;
-const shot = async (name) => { const r = await send("Page.captureScreenshot", { format: "png" }); writeFileSync(`/tmp/${name}.png`, Buffer.from(r.result.data, "base64")); };
 
+const list = await (await fetch("http://localhost:9245/json/list")).json();
+const page = list.find((t) => t.type === "page");
+const ws = new WebSocket(page.webSocketDebuggerUrl, { perMessageDeflate: false, maxPayload: 2 ** 28 });
+await new Promise((r) => ws.once("open", r));
+let id = 0; const pend = new Map();
+ws.on("message", (raw) => { const m = JSON.parse(raw.toString()); if (m.id && pend.has(m.id)) { pend.get(m.id)(m); pend.delete(m.id); } });
+const send = (m, params = {}) => new Promise((res) => { const i = ++id; pend.set(i, res); ws.send(JSON.stringify({ id: i, method: m, params })); });
+const ev = async (e) => (await send("Runtime.evaluate", { expression: e, returnByValue: true, awaitPromise: true })).result?.result?.value;
+
+async function shot(file) {
+  const r = await send("Page.captureScreenshot", { format: "png", captureBeyondViewport: false });
+  fs.writeFileSync(file, Buffer.from(r.result.data, "base64"));
+  console.log("  saved " + file);
+}
+
+/** Everything that defines "how the board looks". */
 const measure = () => ev(`(() => {
-  const R = (sel) => { const el = document.querySelector(sel); if (!el) return null; const b = el.getBoundingClientRect(); return { t: Math.round(b.top), b: Math.round(b.bottom), l: Math.round(b.left), r: Math.round(b.right), w: Math.round(b.width), h: Math.round(b.height) }; };
-  const timer = document.querySelector('[data-testid="puzzle-timer"]');
-  const onBoard = timer ? (() => { const a = timer.getBoundingClientRect(); const br = document.querySelector('cg-board').getBoundingClientRect();
-      return a.top >= br.top && a.bottom <= br.bottom && a.left >= br.left && a.right <= br.right; })() : null;
-  const nav = document.querySelector('[data-testid="move-nav"]');
+  const r = (el) => { if (!el) return null; const b = el.getBoundingClientRect();
+    return { x: Math.round(b.x), y: Math.round(b.y), w: Math.round(b.width), h: Math.round(b.height), bottom: Math.round(b.bottom) }; };
+  const btn = (re) => [...document.querySelectorAll('button')].find(b => re.test((b.innerText||'').trim()));
+  const panel = document.querySelector('.board-panel');
+  const board = document.querySelector('cg-board');
+  const head = document.querySelector('.board-panel__head');
+  const foot = document.querySelector('.board-panel__foot');
+  const titles = document.querySelector('.board-panel__titles');
+  const meta = document.querySelector('.board-panel__meta');
+  const progress = document.querySelector('.board-panel__progress');
+  const strip = document.querySelector('[data-testid="session-strip"]');
+  const wrap = document.querySelector('[data-board-context]');
   return {
+    context: wrap ? wrap.getAttribute('data-board-context') : null,
+    scrollY: Math.round(scrollY),
     vw: innerWidth, vh: innerHeight,
-    navScroll: nav ? { sw: nav.scrollWidth, cw: nav.clientWidth } : null,
-    timerInNav: timer ? !!timer.closest('[data-testid="move-nav"]') : null,
-    ctx: document.querySelector('[data-board-context]')?.getAttribute('data-board-context') ?? null,
-    board: R('cg-board'), panel: R('.board-panel'), head: R('.board-panel__head'),
-    movenav: R('[data-testid="move-nav"]'), foot: R('.board-panel__foot'),
-    strip: R('[data-testid="session-strip"]'), stripLabel: document.querySelector('[data-testid="session-label"]')?.innerText?.replace(/\\s+/g,' ').trim() ?? null,
-    squares: document.querySelectorAll('[data-testid^="session-square-"]').length,
-    theme: document.querySelector('[data-testid="active-theme"]')?.innerText?.trim() ?? null,
-    timerText: timer?.innerText?.trim() ?? null, timerOnBoard: onBoard, timerCovering: timer ? (() => {
-      const tr = timer.getBoundingClientRect();
-      return [...document.querySelectorAll('piece')].some(pc => { const b = pc.getBoundingClientRect();
-        return b.left < tr.right && tr.left < b.right && b.top < tr.bottom && tr.top < b.bottom; });
-    })() : null,
-    buttons: [...document.querySelectorAll('.board-panel button')].map(b => (b.innerText||b.getAttribute('aria-label')||'').trim()).filter(Boolean),
+    panel: r(panel), board: r(board), head: r(head), foot: r(foot),
+    titles: r(titles), meta: r(meta), progress: r(progress), strip: r(strip),
+ stripText: strip ? (strip.innerText || "").replace(/\s+/g, " ").trim() : null,
+    solution: r(btn(/^Solution$/i)), hard: r(document.querySelector('[data-testid="hard-button"]')),
+    skip: r(document.querySelector('[data-testid="skip-button"]')), next: r(document.querySelector('[data-testid="next-button"]')),
+    themeLabel: (document.querySelector('[data-testid="active-theme"]')||{}).textContent || null,
+    puzzleId: (document.querySelector('[data-testid="board-puzzle-id"]')||{}).textContent || null,
+    moveCounter: (document.querySelector('[data-testid="move-counter"]')||{}).textContent || null,
+    userRating: (document.querySelector('[data-testid="user-rating"]')||{}).textContent || null,
+    nav: r(document.querySelector('[data-testid="move-nav"]')),
+    chessground: !!document.querySelector('.cg-wrap'),
   };
 })()`);
 
-const show = (tag, d) => {
-  console.log(`\n--- ${tag} ctx=${d.ctx} vw=${d.vw}`);
-  for (const k of ["board", "head", "movenav", "foot", "strip"]) {
-    const v = d[k];
-    console.log(`    ${k.padEnd(8)} ${v ? `w=${String(v.w).padStart(4)} h=${String(v.h).padStart(3)} top=${String(v.t).padStart(4)} bottom=${String(v.b).padStart(4)}` : "none"}`);
-  }
-  console.log(`    strip label: ${d.stripLabel}   squares=${d.squares}`);
-  console.log(`    theme="${d.theme}"  timer="${d.timerText}"  on-board=${d.timerOnBoard}  covering-piece=${d.timerCovering}  in-nav-row=${d.timerInNav}`);
-  const fit = d.navScroll ? d.navScroll.sw <= d.navScroll.cw + 1 : null;
-  console.log(`    nav row overflow: ${fit === null ? "n/a" : fit ? "NO overflow" : "OVERFLOW"} (scrollW ${d.navScroll?.sw} vs clientW ${d.navScroll?.cw})`);
-  console.log(`    buttons: ${d.buttons.join(" | ")}`);
-};
+await send("Runtime.enable"); await send("Page.enable");
+await send("Network.setCacheDisabled", { cacheDisabled: true });
+await send("Emulation.setDeviceMetricsOverride", { width: 390, height: 844, deviceScaleFactor: 3, mobile: true });
 
-async function boot(w, h, mobile) {
-  await send("Emulation.setDeviceMetricsOverride", { width: w, height: h, deviceScaleFactor: mobile ? 3 : 1, mobile });
-  await send("Page.navigate", { url: "http://localhost:3000/?cb=" + Date.now() });
-  await sleep(12000);
-  await ev(`localStorage.clear()`);
-  await ev(`localStorage.setItem('puzzle_trainer_sync','off')`);
-  await ev(`localStorage.setItem('puzzle_trainer_pinned_themes', JSON.stringify(["fork"]))`);
-  await ev(`localStorage.setItem('puzzle_trainer_settings', JSON.stringify({ rating: 1500, quickStartCount: 6 }))`);
-  // Per-puzzle clock ON, so the countdown is on screen for both boards.
-  await ev(`localStorage.setItem('puzzle_trainer_theme_prefs', JSON.stringify({ boardTheme:"green", pieceSet:"cburnett", uiTheme:"dark", coordinates:true, animation:true, highlightLastMove:true, highlightCheck:true, pieceAnimation:true, autoCastle:true, autoPromoteToQueen:true, blockTouchScroll:true, puzzleTimerSeconds:60 }))`);
-  await send("Page.navigate", { url: "http://localhost:3000/?cb=" + Date.now() });
-  await sleep(15000);
-}
+// ---- reach a live Training board -------------------------------------------
+await send("Page.navigate", { url: "http://localhost:3000/?s=" + Date.now() });
+await sleep(13000);
+await ev(`localStorage.clear(); localStorage.setItem('puzzle_trainer_sync','off');
+          localStorage.setItem('puzzle_trainer_pinned_themes', JSON.stringify(["fork","pin","skewer"]))`);
+await send("Page.navigate", { url: "http://localhost:3000/?s=" + Date.now() });
+await sleep(15000);
+await ev(`document.querySelector('[data-testid="quickstart-button"]')?.click()`);
+await sleep(9000);
 
-for (const [w, h, mobile, tag] of [[390, 844, true, "390"], [1408, 881, false, "1408"]]) {
-  console.log(`\n================= ${tag} =================`);
-  await boot(w, h, mobile);
+const training = await measure();
+console.log("\n=== TRAINING ===");
+console.log(JSON.stringify(training, null, 1));
+await ev(`window.scrollTo(0,0)`);
+await sleep(600);
+await shot("/tmp/board-training.png");
 
-  // --- Training ---
-  await ev(`document.querySelector('[data-testid="quickstart-button"]')?.click()`);
-  await sleep(9000);
-  const tr = await measure();
-  show("TRAINING", tr);
-  await shot(`cmp-${tag}-training`);
+// ---- fail it so Review has something due -----------------------------------
+await ev(`[...document.querySelectorAll('button')].find(b=>/^Solution$/i.test((b.innerText||'').trim()))?.click()`);
+await sleep(4000);
 
-  // Fail it → it enters the mistakes deck.
-  await ev(`document.querySelector('[data-testid="solution-button"]')?.click()`);
-  await sleep(3500);
+// ---- reach a live Review board ---------------------------------------------
+await ev(`document.querySelector('[data-testid="tab-mistakes"]')?.click()`);
+await sleep(2500);
+await ev(`[...document.querySelectorAll('button')].find(b=>/Review Due/i.test(b.innerText||''))?.click()`);
+await sleep(10000);
 
-  // --- Review ---
-  await ev(`(() => { const b=[...document.querySelectorAll('header nav button')].find(x=>/Review/i.test(x.innerText)); b&&b.click(); })()`);
-  await sleep(2500);
-  const started = await ev(`(() => {
-    const due = [...document.querySelectorAll('button')].find(x=>/Review Due/i.test(x.innerText));
-    if (due) { due.click(); return 'Review Due'; }
-    const row = document.querySelector('aside button');
-    if (row) { row.click(); return 'queue row'; }
-    return 'nothing';
-  })()`);
-  await sleep(7000);
-  const rv = await measure();
-  show(`REVIEW (started via ${started})`, rv);
-  await shot(`cmp-${tag}-review`);
+const review = await measure();
+console.log("\n=== REVIEW ===");
+console.log(JSON.stringify(review, null, 1));
+await ev(`window.scrollTo(0,0)`);
+await sleep(600);
+await shot("/tmp/board-review.png");
 
-  // --- numeric diff ---
-  console.log(`\n  DIFF training vs review @${tag}:`);
-  for (const k of ["board", "head", "movenav", "foot", "strip"]) {
-    const a = tr[k], b = rv[k];
-    const same = (a?.w === b?.w && a?.h === b?.h);
-    console.log(`    ${k.padEnd(8)} ${same ? "IDENTICAL" : "DIFFERENT"}  training=${a ? a.w + "x" + a.h : "none"}  review=${b ? b.w + "x" + b.h : "none"}`);
-  }
-}
-
-const errs = events.filter((e) => e.method === "Runtime.exceptionThrown");
-console.log(`\nuncaught exceptions: ${errs.length}`);
+// ---- the comparison that actually matters ----------------------------------
+const SAME = (a, b) => (a && b ? (Math.abs(a.w - b.w) <= 1 && Math.abs(a.h - b.h) <= 1 ? "SAME" : "DIFF") : "?");
+console.log("\n=== DIFF TABLE ===");
+const rows = [
+  ["board w x h", `${training.board?.w}x${training.board?.h}`, `${review.board?.w}x${review.board?.h}`, SAME(training.board, review.board)],
+  ["board x / y", `${training.board?.x} / ${training.board?.y}`, `${review.board?.x} / ${review.board?.y}`,
+   training.board?.x === review.board?.x ? "SAME" : "DIFF"],
+  ["panel w / y", `${training.panel?.w} / ${training.panel?.y}`, `${review.panel?.w} / ${review.panel?.y}`,
+   training.panel?.w === review.panel?.w ? "SAME" : "DIFF"],
+  ["head h", `${training.head?.h}`, `${review.head?.h}`, training.head?.h === review.head?.h ? "SAME" : "DIFF"],
+  ["titles w", `${training.titles?.w}`, `${review.titles?.w}`, training.titles?.w === review.titles?.w ? "SAME" : "DIFF"],
+  ["meta y/h", `${training.meta?.y}/${training.meta?.h}`, `${review.meta?.y}/${review.meta?.h}`, training.meta?.h === review.meta?.h ? "SAME" : "DIFF"],
+  ["foot y/h", `${training.foot?.y}/${training.foot?.h}`, `${review.foot?.y}/${review.foot?.h}`, training.foot?.h === review.foot?.h ? "SAME" : "DIFF"],
+  ["strip present", `${!!training.strip}`, `${!!review.strip}`, (!!training.strip) === (!!review.strip) ? "SAME" : "DIFF"],
+  ["progress (pips) y", `${training.progress?.y}`, `${review.progress?.y}`, training.progress?.y === review.progress?.y ? "SAME" : "DIFF"],
+  ["Solution y", `${training.solution?.y}`, `${review.solution?.y}`, training.solution?.y === review.solution?.y ? "SAME" : "DIFF"],
+  ["Hard y", `${training.hard?.y}`, `${review.hard?.y}`, training.hard?.y === review.hard?.y ? "SAME" : "DIFF"],
+  ["Skip/Next y", `${training.skip?.y ?? training.next?.y}`, `${review.skip?.y ?? review.next?.y}`,
+   (training.skip?.y ?? training.next?.y) === (review.skip?.y ?? review.next?.y) ? "SAME" : "DIFF"],
+  ["move-nav y", `${training.nav?.y}`, `${review.nav?.y}`, training.nav?.y === review.nav?.y ? "SAME" : "DIFF"],
+  ["theme label", `${training.themeLabel}`, `${review.themeLabel}`, "n/a"],
+  ["puzzle id", `${training.puzzleId}`, `${review.puzzleId}`, "n/a"],
+  ["user rating pill", `${training.userRating}`, `${review.userRating}`, training.userRating === review.userRating ? "SAME" : "DIFF"],
+  ["scrollY", `${training.scrollY}`, `${review.scrollY}`, training.scrollY === review.scrollY ? "SAME" : "DIFF"],
+  ["doc height", `${training.vh}`, `${review.vh}`, "n/a"],
+];
+const w = [22, 22, 22, 6];
+console.log("  " + "what".padEnd(w[0]) + "TRAINING".padEnd(w[1]) + "REVIEW".padEnd(w[2]) + "match");
+for (const [a, b, c, d] of rows) console.log("  " + String(a).padEnd(w[0]) + String(b).padEnd(w[1]) + String(c).padEnd(w[2]) + d);
 ws.close(); process.exit(0);

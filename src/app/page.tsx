@@ -716,8 +716,15 @@ function PuzzleDashboardPageInner() {
               ? {
                   sessionEntries: sessionLog.entries,
                   sessionActiveIndex: sessionActive,
-                  sessionThemeLabel:
-                    context === "training" && activeTheme ? themeLabel(activeTheme) : null,
+                  // Use the SAME label the board head shows above the puzzle, so
+                  // the strip reads "Fork · Puzzle 1/1" in BOTH Training and
+                  // Review. It used to be hardcoded to training (`context ===
+                  // "training" && activeTheme ? ... : null`), so Review's strip
+                  // silently lost the theme name and rendered a bare
+                  // "Puzzle 1 / 1" — the only visible difference between the two
+                  // boards. `boardAngleLabel` already resolves correctly for
+                  // review (the puzzle's own opening, else its first theme).
+                  sessionThemeLabel: boardAngleLabel,
                   onReplayAt: replaySessionAt,
                 }
               : {})}
