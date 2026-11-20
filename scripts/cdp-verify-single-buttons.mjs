@@ -34,6 +34,7 @@ const counts = () => ev(`(() => {
     hardIds, nextIds,
     hard: hards[0] ? r(hards[0]) : null,
     next: nexts[0] ? r(nexts[0]) : null,
+    nextInNav: nexts[0] ? !!nexts[0].closest('[data-testid="move-nav"]') : null,
   };
 })()`);
 
@@ -73,8 +74,13 @@ ok(
 );
 ok(solved.next && solved.hard && solved.next.y < solved.hard.y,
    `Next is ABOVE Hard (next y=${solved.next?.y} < hard y=${solved.hard?.y})`);
-ok(solved.next && solved.hard && solved.next.w >= solved.hard.w,
-   `Next is at least as wide as Hard (${solved.next?.w} vs ${solved.hard?.w})`);
+// Next now lives in the move-nav row directly UNDER THE BOARD (moved there so a
+// failed puzzle can be answered fast: Solution + Next without scrolling). It is
+// therefore a compact button, NOT the full-width one stacked above Hard — so the
+// old "at least as wide as Hard" assertion described the pre-move layout and is
+// now asserted against the new intent instead.
+ok(solved.nextInNav === true, `Next sits in the move-nav row (${solved.nextInNav})`);
+ok(solved.next && solved.next.w >= 80, `Next is a comfortable tap target (${solved.next?.w}px wide)`);
 ok(solved.next && solved.next.h >= 30, `Next is a large tap target (${solved.next?.h}px tall)`);
 
 // The "mark it Hard if it was a lucky guess" hint only rides the CORRECT-solve

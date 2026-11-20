@@ -68,17 +68,24 @@ const t = await ev(`(() => {
   const skip = document.querySelector('[data-testid="next-button"]') || document.querySelector('[data-testid="skip-button"]');
   const cs = strip ? getComputedStyle(strip) : null;
   return { boardUp: !!document.querySelector('[data-board-context="training"]'),
-           sol: r(sol), skip: r(skip), strip: r(strip), stripBg: cs ? cs.backgroundColor : null };
+           sol: r(sol), skip: r(skip), strip: r(strip), stripBg: cs ? cs.backgroundColor : null,
+           movenav: r(document.querySelector('[data-testid="move-nav"]')),
+           hard: r(document.querySelector('[data-testid="hard-button"]')) };
 })()`);
 console.log("training foot:", JSON.stringify(t));
 ok(t.strip !== null, "session strip renders inside the TRAINING board foot");
-// The strip now lives on its OWN row ABOVE the button row on a narrow screen.
-// The user asked for exactly that: "maybe can be higher? make sure it does not
-// overlap with icons or buttons". So the assertion is that its bottom edge sits
-// above every button's top edge — not that it is horizontally between two of them.
-const firstButtonTop = Math.min(t.sol?.y ?? 1e9, t.skip?.y ?? 1e9, t.hard?.y ?? 1e9);
-ok(t.strip && t.strip.bottom <= firstButtonTop,
-   `strip is on its own row ABOVE the buttons (strip bottom ${t.strip?.bottom} <= first button top ${firstButtonTop})`);
+// The strip sits BETWEEN the move-scrub row above it (Solution / ◀ ▶, which §87
+// moved up there) and the Skip/Hard column below it. It must not collide with
+// either. The old assertion was "its bottom is above EVERY button's top", which
+// was written when Solution still lived in the foot; once Solution moved into the
+// move-nav row that became false by design, not a regression.
+ok(t.strip && t.movenav && t.strip.y >= t.movenav.bottom,
+   `strip is clear of the move-scrub row above it (strip top ${t.strip?.y} >= move-nav bottom ${t.movenav?.bottom})`);
+// NOTE: `skip` above resolves to `next-button`, which in the FAILED state lives
+// in the move-nav row ABOVE the strip — so "above the Skip/Hard column" must be
+// asserted against HARD, the button that actually sits below the strip.
+ok(t.strip && t.hard && t.strip.bottom <= t.hard.y,
+   `strip sits ABOVE the Hard button in the foot (strip bottom ${t.strip?.bottom} <= Hard top ${t.hard?.y})`);
 ok(!!t.stripBg && t.stripBg !== "rgba(0, 0, 0, 0)" && t.stripBg !== "transparent",
    `strip has a visible background, not the page colour (${t.stripBg})`);
 

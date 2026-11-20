@@ -19,7 +19,7 @@ const nav = () => ev(`(() => {
   const fwd = document.querySelector('[data-testid="move-forward"]');
   const back = document.querySelector('[data-testid="move-back"]');
   return { counter: t, canFwd: fwd ? !fwd.disabled : null, canBack: back ? !back.disabled : null,
-           live: !!document.querySelector('[data-testid="move-live"]') };
+           live: !!document.querySelector('[data-testid="move-nav-position"][data-live="false"]') };
 })()`);
 // A fingerprint of the displayed position: the ACTUAL style of every piece, not
 // just its total length (a length is a weak hash — two different positions can

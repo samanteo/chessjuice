@@ -314,11 +314,14 @@ export function PuzzleBoard({
         playSound("correct");
         setFeedback("Correct! 🎉 — or mark it Hard if it was a lucky guess.");
       } else if (timedOut) {
+        // Both losing outcomes read the SAME short label on purpose — the full
+        // line is played onto the board below, so the old "the best move was X"
+        // sentence was redundant and cost two lines above the board's own space.
         playSound("wrong");
-        setFeedback(`⏱ Time's up! The best move was ${expectedUci || "…"}`);
+        setFeedback("Puzzle failed");
       } else {
         playSound("wrong");
-        setFeedback(`Wrong. The best move was ${expectedUci || "…"}`);
+        setFeedback("Puzzle failed");
       }
       const attempt: PuzzleAttempt = {
         puzzleId: puzzle.id,
@@ -567,7 +570,7 @@ export function PuzzleBoard({
     // solution can be stepped through with ◀ ▶.
     playOutRemaining();
     setStatus("wrong");
-    setFeedback("Solution shown — puzzle marked as failed. Step through it with ◀ ▶.");
+    setFeedback("Puzzle failed");
     const attempt: PuzzleAttempt = {
       puzzleId: puzzle.id,
       userId: "",
@@ -680,7 +683,7 @@ export function PuzzleBoard({
               )}
             </span>
             {puzzle.themes.slice(0, 3).map((t) => (
-              <span key={t} className="pill pill-neutral">
+              <span key={t} className="pill pill-neutral theme-chip">
                 {t}
               </span>
             ))}
@@ -712,17 +715,6 @@ export function PuzzleBoard({
           autoPromoteToQueen={autoPromoteToQueen}
           blockTouchScroll={blockTouchScroll}
         />
-        {/* Optional countdown — only while the puzzle is unsolved. */}
-        {timerEnabled && status === "playing" && (
-          <div
-            className={`board-timer${timeLeft <= 10 ? " warning" : ""}`}
-            data-testid="puzzle-timer"
-            data-time-left={timeLeft}
-            aria-live="polite"
-          >
-            ⏱ {formatClock(timeLeft)}
-          </div>
-        )}
       </div>
 
       {/* Back / forward review — Lichess-style. Purely visual: stepping through
@@ -730,9 +722,56 @@ export function PuzzleBoard({
       <div
         className="board-panel__actions"
         data-testid="move-nav"
-        style={{ padding: "0.5rem 1.25rem", borderTop: "1px solid var(--border)" }}
+        style={{ padding: "0.4rem 1.25rem", borderTop: "1px solid var(--border)" }}
       >
-        <div className="flex items-center justify-center gap-2">
+        {/* LEFT: Solution — and Next puzzle once the attempt is over, so both are
+            reachable without scrolling past the board. */}
+        <div className="flex items-center gap-2 min-w-0">
+          <button
+            data-testid="solution-button"
+            onClick={handleSolution}
+            disabled={status === "correct"}
+            className="btn-ghost"
+          >
+            Solution
+          </button>
+          {(status === "correct" || status === "wrong") && (
+            <button
+              data-testid="next-button"
+              onClick={handleNext}
+              className="btn-primary"
+            >
+              Next puzzle
+            </button>
+          )}
+        </div>
+
+        {/* MIDDLE: the countdown, while the puzzle is unsolved.
+            It lives in THIS row, not in the header and never as an overlay on the
+            board. Two reasons:
+              - An overlay sat in the board's corner and covered whichever piece
+                stood there — "the puzzle timer is covering the rook".
+              - An extra pill in the HEADER wrapped the meta onto another line on
+                a phone, and the board is height-limited, so that cost it ~26px
+                (§88).
+            This row is nearly empty while PLAYING (just Solution on the left), so
+            the clock is free here. It is hidden once the puzzle resolves, which is
+            exactly when the row fills up with Next. */}
+        {timerEnabled && status === "playing" && (
+          <span
+            className={`pill board-timer flex-shrink-0${timeLeft <= 10 ? " warning" : ""}`}
+            data-testid="puzzle-timer"
+            data-time-left={timeLeft}
+            aria-live="polite"
+          >
+            ⏱ {formatClock(timeLeft)}
+          </span>
+        )}
+
+        {/* RIGHT: move stepping + position counter. flex-shrink-0 so the left
+            group (Solution / Next) yields space before this one — the alternative
+            was the counter collapsing onto three stacked lines. */}
+        <div className="flex items-center gap-2 flex-shrink-0">
           <button
             data-testid="move-back"
             onClick={goBack}
@@ -761,21 +800,27 @@ export function PuzzleBoard({
           >
             ▶
           </button>
-          <span
-            className="text-xs text-gray-500 dark:text-[#8b8987] tabular-nums ml-1"
+          {/* The counter doubles as "back to the live position" while reviewing.
+              It REPLACES the old orange "Back to position" button, which was one
+              control too many: the row overflowed at phone width, "Next puzzle"
+              painted OVER the ▶ button, and the counter wrapped onto three lines.
+              Tapping the counter costs no width and is inert when not reviewing. */}
+          <button
+            type="button"
+            onClick={goLive}
+            disabled={!isScrubbing}
+            title={isScrubbing ? "Back to the current position" : undefined}
             data-testid="move-nav-position"
+            data-live={isScrubbing ? "false" : "true"}
+            className={
+              "text-xs tabular-nums ml-1 whitespace-nowrap bg-transparent border-0 p-0 " +
+              (isScrubbing
+                ? "text-[#d59020] font-semibold hover:underline"
+                : "text-gray-500 dark:text-[#8b8987]")
+            }
           >
             {displayIndex} / {history.length - 1}
-          </span>
-          {isScrubbing && (
-            <button
-              data-testid="move-live"
-              onClick={goLive}
-              className="ml-2 px-2.5 py-1 rounded-lg text-xs font-medium bg-[#d59020] text-[#1b1a17] hover:brightness-110"
-            >
-              Back to position
-            </button>
-          )}
+          </button>
         </div>
       </div>
 
@@ -812,12 +857,8 @@ export function PuzzleBoard({
         )}
 
         <div className="board-panel__actions">
-          {/* Secondary actions stay on the left. */}
-          <div className="board-actions__secondary">
-            <button onClick={handleSolution} disabled={status !== "playing"} className="btn-ghost">
-              Solution
-            </button>
-          </div>
+          {/* Solution and Next puzzle moved up into the move-nav bar so they are
+              visible without scrolling. Only Hard stays down here. */}
 
           {/* Session progress chips live in their OWN row above (see the foot),
               not squeezed into this row. In the middle of the action row they sat
@@ -842,17 +883,14 @@ export function PuzzleBoard({
               directly beneath it — both full-width, so they are easy to hit with
               a thumb on a phone. Order requested: Next above, Hard below. */}
           <div className="board-actions__primary">
-            {status === "correct" || status === "wrong" ? (
-              <button onClick={handleNext} className="btn-primary" data-testid="next-button">
-                Next puzzle
-              </button>
-            ) : (
+            {/* Next puzzle now lives in the move-nav bar above. Skip only makes
+                sense mid-attempt; Hard stays here (may need a scroll). */}
+            {status === "playing" && (
               <button
                 onClick={handleSkip}
                 className={skipArmed ? "btn-primary" : "btn-ghost"}
                 data-testid="skip-button"
                 data-skip-armed={skipArmed ? "true" : "false"}
-                disabled={status !== "playing"}
                 title="Abandons this puzzle without recording it."
               >
                 {skipArmed ? "Tap again to skip ↷" : "Skip puzzle"}
@@ -860,7 +898,7 @@ export function PuzzleBoard({
             )}
             <button
               onClick={handleHard}
-              disabled={status !== "playing"}
+              disabled={status === "wrong"}
               className="btn-ghost"
               data-testid="hard-button"
               title="Not solid / lucky guess? Same as a wrong answer — sends this puzzle back into the mistakes deck."

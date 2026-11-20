@@ -434,11 +434,11 @@ export function QueueViews({
           🗂️ Group by theme
         </button>
 
-        {/* Get Next Puzzle button - Lichess style */}
+        {/* Get Next Puzzle button — red to match the app's Review Due button */}
         <button
           onClick={handleGetNextPuzzle}
           disabled={queuePuzzles.length === 0}
-          className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors font-medium"
+          className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors font-medium"
         >
           ➡️ Get Next Puzzle
         </button>

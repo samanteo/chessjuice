@@ -156,6 +156,17 @@ function collectLocal(): Record<string, string> {
  */
 async function push(keys?: string[]): Promise<void> {
   try {
+    // Re-check the opt-out on EVERY push, not just at install time.
+    // A test harness sets `puzzle_trainer_sync='off'` in localStorage AFTER the
+    // page has already loaded, and the engine used to stay live for the rest of
+    // that page — so the harness's own seeded values (rating 1500, a fake pin
+    // set) were pushed straight over the user's REAL state. Reading the flag here
+    // is what makes a mid-session opt-out actually stop writes.
+    try {
+      if (localStorage.getItem(OFF_KEY) === "off") return;
+    } catch {
+      /* storage blocked — fall through; the pull side still guards itself */
+    }
     const all = collectLocal();
     const list = (keys ?? Object.keys(all)).filter((k) => all[k] !== undefined);
     if (list.length === 0) return;

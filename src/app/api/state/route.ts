@@ -190,6 +190,28 @@ export async function DELETE(req: Request) {
     );
   }
 
+  // A SECOND gate, added after a cdp-verify script wiped the user's REAL data.
+  // `?confirm=1` is easy for a test harness to pass by accident, and the archive
+  // only makes the wipe *recoverable*, it does not prevent it. Clearing an
+  // ALREADY-EMPTY store is harmless (and is what most test resets actually hit),
+  // so only the destructive case — wiping a store that really holds progress —
+  // requires the SERVER to have been started with an explicit test flag.
+  // Production (the launchd service) never sets it, so it can never happen there.
+  const current = await readStore();
+  if (Object.keys(current).length > 0 && process.env.PUZZLE_ALLOW_STATE_RESET !== "1") {
+    return NextResponse.json(
+      {
+        ok: false,
+        error: "refusing to wipe a NON-EMPTY state store",
+        hint:
+          "This store holds real progress. If you truly mean to clear it, restart the " +
+          "server with PUZZLE_ALLOW_STATE_RESET=1 (or clear it through the UI).",
+        keys: Object.keys(current).length,
+      },
+      { status: 409, headers: { "Cache-Control": "no-store" } }
+    );
+  }
+
   try {
     const store = await readStore();
     if (Object.keys(store).length > 0) {

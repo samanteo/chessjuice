@@ -51,6 +51,11 @@ type TabId = typeof TABS[number]["id"];
  * Human label for a theme / opening key.
  * `sicilianDefense` -> "Sicilian Defense"; falls back to the raw key.
  */
+// Bound on the previous-puzzle history the session strip walks. It used to be
+// 30 RENDERED squares; the squares are gone, so the bound lives here instead and
+// is the user's own number ("i think previously was 30. maybe 100max?").
+const MAX_SESSION_ENTRIES = 100;
+
 function themeLabel(id: string | null | undefined): string {
   if (!id) return "Mixed";
   const meta = FLAT_THEME_CARDS[id];
@@ -135,7 +140,14 @@ function PuzzleDashboardPageInner() {
       if (entries.some((e) => e.id === puzzleId)) {
         return { theme: themeId, entries };
       }
-      return { theme: themeId, entries: [...entries, { id: puzzleId, rating }] };
+      const appended = [...entries, { id: puzzleId, rating }];
+      return {
+        theme: themeId,
+        entries:
+          appended.length > MAX_SESSION_ENTRIES
+            ? appended.slice(appended.length - MAX_SESSION_ENTRIES)
+            : appended,
+      };
     });
     setSessionActive(-1);
   }, []);
@@ -353,6 +365,14 @@ function PuzzleDashboardPageInner() {
       setBoardContext(context);
       setActiveTab(context === "review" ? "mistakes" : context);
       if (context === "review") setActiveQueue("due");
+      // Keep the previous-puzzle pager fed for BOTH Training and Review, so the
+      // ◀ ▶ works on either board (Review previously had no pager at all).
+      // Review has no chosen theme, so its batch key is null.
+      noteServed(
+        context === "review" ? null : themes.length === 1 ? (themes[0] as string) : null,
+        chosen.id,
+        (chosen as { rating?: number }).rating,
+      );
     },
     [puzzles, settings, noteServed]
   );
@@ -392,6 +412,9 @@ function PuzzleDashboardPageInner() {
           themes: p.themes,
           openings: p.openings,
         } as any);
+        // Feeding the pager here too: an OPENING-dispensed puzzle previously never
+        // entered the batch, so the ◀ ▶ could not walk back over it.
+        noteServed(context === "review" ? null : openingId, p.id, p.rating);
         setBoardContext(context);
         setActiveTab(context === "review" ? "mistakes" : context);
         if (context === "review") setActiveQueue("due");
@@ -426,6 +449,7 @@ function PuzzleDashboardPageInner() {
       setBoardContext(context);
       setActiveTab(context === "review" ? "mistakes" : context);
       if (context === "review") setActiveQueue("due");
+      noteServed(context === "review" ? null : openingId, chosen.id, (chosen as { rating?: number }).rating);
     },
     [puzzles, settings, noteServed]
   );
@@ -685,15 +709,15 @@ function PuzzleDashboardPageInner() {
             }}
             onAdvance={() => handleBoardNext(context)}
             onClose={() => handleBoardNext(context)}
-            // Session progress chips render INSIDE the board's foot — between the
-            // Solution button and the Skip/Next column (see PuzzleBoard). They
-            // used to sit below the board, under the fold on a phone. Only
-            // Training keeps a running batch to page back through.
-            {...(context === "training"
+            // Session progress pager renders INSIDE the board's foot — above the
+            // Skip/Next column (see PuzzleBoard). Training AND Review keep a
+            // running batch; All themes has no run to page back through.
+            {...(context !== "allthemes"
               ? {
                   sessionEntries: sessionLog.entries,
                   sessionActiveIndex: sessionActive,
-                  sessionThemeLabel: activeTheme ? themeLabel(activeTheme) : null,
+                  sessionThemeLabel:
+                    context === "training" && activeTheme ? themeLabel(activeTheme) : null,
                   onReplayAt: replaySessionAt,
                 }
               : {})}

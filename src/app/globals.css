@@ -507,19 +507,14 @@ body {
   overflow: hidden;
 }
 
-/* Sized frame that hosts the board panel. The board is the hero: the frame
-   claims almost the whole viewport (minus the sticky header) so the square
-   board — which is `min(stage width, stage height)` inside the panel — gets the
-   largest possible square, while the panel's chrome still fits on screen without
-   scrolling. `100dvh` tracks the mobile URL bar; `100vh` is the fallback. */
+/* The frame is locked to the initial viewport (100vh), not the dynamic
+   100dvh which grows when Safari's address bar collapses on scroll.
+   env(safe-area-inset-bottom) handles the home‑indicator notch on modern iPhones.
+   The header var already includes main's py‑6 (24px) so the board sits
+   exactly against the bottom edge. */
 .board-frame {
-  height: min(calc(100vh - var(--board-header, 65px)), 900px);
-  min-height: 420px;
-}
-@supports (height: 100dvh) {
-  .board-frame {
-    height: min(calc(100dvh - var(--board-header, 65px)), 900px);
-  }
+  height: calc(100vh - var(--board-header, 89px) - env(safe-area-inset-bottom, 0px));
+  max-height: 90vh;
 }
 
 .board-panel__head {
@@ -564,32 +559,27 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 0.3rem;
+  padding: 0.2rem;
   background: var(--surface-2);
 }
 
-/* --- Puzzle timer badge (overlaid on the board, top-right) --- */
+/* --- Puzzle countdown -------------------------------------------------------
+   A PILL IN THE HEADER ROW (`.board-panel__meta`), never an overlay on the
+   board. As an absolute overlay in the board's top-right corner it covered
+   whichever piece stood there — the user's "the puzzle timer is covering the
+   rook". `.pill` supplies the box; these rules supply the clock look. */
 .board-timer {
-  position: absolute;
-  top: 0.55rem;
-  right: 0.55rem;
-  z-index: 5;
-  display: inline-flex;
-  align-items: center;
-  gap: 0.3rem;
-  padding: 0.25rem 0.6rem;
-  border-radius: 999px;
-  background: rgba(23, 22, 20, 0.72);
-  color: #fff;
-  font-size: 0.82rem;
-  font-weight: 700;
   font-variant-numeric: tabular-nums;
+  font-weight: 700;
   letter-spacing: 0.02em;
-  box-shadow: var(--shadow-sm);
-  pointer-events: none;
+  background: var(--surface-3);
+  color: var(--text);
+  border-color: var(--border-strong);
 }
 .board-timer.warning {
   background: var(--danger);
+  color: #fff;
+  border-color: var(--danger);
   animation: timerPulse 1s ease-in-out infinite;
 }
 @keyframes timerPulse {
@@ -598,7 +588,7 @@ body {
 
 .board-panel__foot {
   border-top: 1px solid var(--border);
-  padding: 0.5rem 1.25rem 0.5rem;
+  padding: 0.4rem 1.25rem 0.4rem;
   background: var(--surface);
 }
 .board-panel__actions {
@@ -710,7 +700,7 @@ body {
   display: flex;
   align-items: center;
   gap: 0.35rem;
-  margin-top: 0.5rem;
+  margin-top: 0.3rem;
 }
 .board-panel__progress span {
   height: 6px;
@@ -1013,7 +1003,6 @@ body {
   .board-panel__head { padding: 0.6rem 0.8rem; }
   .board-panel__foot { padding: 0.7rem 0.8rem 0.85rem; }
   .board-panel__meta { gap: 0.3rem; }
-  .board-timer { top: 0.4rem; right: 0.4rem; }
 
   /* The 5-tab mobile nav bar can be wider than a narrow phone, which forced the
      whole layout viewport wider (page-wide horizontal overflow). Shrink it and
@@ -1032,4 +1021,75 @@ body {
     font-size: 0.72rem;
     gap: 0.2rem;
   }
+}
+
+/* ==========================================================================
+   BOARD FOOT CONTROLS — one line, never overlapping
+   ==========================================================================
+   The row under the board carries Solution (plus Next once the attempt is
+   over) on the LEFT and the ◀ ▶ move-scrubber + position counter on the RIGHT.
+   At phone width the old orange "Back to position" button was one control too
+   many: the row overflowed, "Next puzzle" painted OVER the ▶ button, and the
+   counter wrapped onto three stacked lines. The button is gone — the counter
+   itself is now the way back (see PuzzleBoard) — and these rules keep the row
+   from ever overflowing again. */
+[data-testid="move-nav"] {
+  gap: 0.5rem;
+}
+/* Both halves may shrink; neither may force the row wider than the viewport. */
+[data-testid="move-nav"] > div {
+  min-width: 0;
+}
+[data-testid="move-nav"] .btn-primary,
+[data-testid="move-nav"] .btn-ghost {
+  white-space: nowrap;
+}
+
+/* Phone: trim the row's own padding and the two left buttons so Solution +
+   Next + ◀ ▶ + counter all fit on ONE line down to 360px. The inline padding
+   on the row is 1.25rem (which lines up with the board head on desktop), hence
+   the !important override. */
+@media (max-width: 480px) {
+  [data-testid="move-nav"] {
+    padding-left: 0.6rem !important;
+    padding-right: 0.6rem !important;
+  }
+  [data-testid="move-nav"] .btn-primary,
+  [data-testid="move-nav"] .btn-ghost {
+    padding-left: 0.55rem;
+    padding-right: 0.55rem;
+  }
+}
+
+/* Very narrow phones (<=380px): the meta pills used to wrap onto a second row,
+   which made the head ~26px taller — and the board's size is
+   `min(stage width, stage height)` (set inline by ChessgroundWrapper), so those
+   26px came straight off the board. Keeping the pills on ONE row (the trailing
+   theme chips scroll in instead of wrapping) hands the height back to the
+   board, so it stays edge-to-edge on a 360px device too.
+   Scoped to 380px on purpose: at 390px+ the head already fits in two rows AND
+   the board is full-bleed, so forcing one row there would only clip the
+   important "Move X of Y" pill for no gain. */
+@media (max-width: 380px) {
+  .board-panel__meta {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .board-panel__meta::-webkit-scrollbar { display: none; }
+  .board-panel__meta > * { flex: 0 0 auto; }
+}
+
+/* Phones: DROP the trailing theme chips from the header.
+   They are the only VARIABLE-LENGTH content in the meta row, so on a puzzle with
+   three long theme tags the row wrapped to a third line — head 94px → 120px, and
+   because the board is height-limited (§88) the playing surface shrank to 369px.
+   The same puzzle could therefore render a full-bleed board or a padded one, which
+   is why `cdp-verify-board-size` flapped between 390 and 369.
+   The chips are redundant here: the theme is already the big green label above the
+   board, and what matters in the meta row (Rating / You / side to move / Move X of
+   Y) stays. Removing them makes the header height deterministic. */
+@media (max-width: 600px) {
+  .board-panel__meta .theme-chip { display: none; }
 }

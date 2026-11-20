@@ -86,7 +86,7 @@ console.log(`after back: position "${posAfter}", board changed = ${beforeBack !=
 ok(beforeBack !== afterBack, "stepping back actually changes the displayed position");
 ok(/0 \/ /.test(posAfter ?? ""), `stepped to the start (${posAfter})`);
 
-const liveBtn = await ev(`!!document.querySelector('[data-testid="move-live"]')`);
+const liveBtn = await ev(`!!document.querySelector('[data-testid="move-nav-position"][data-live="false"]')`);
 ok(liveBtn, "a 'back to position' affordance appears while reviewing");
 
 // Critically: reviewing must NOT create an attempt or touch the ladder.
@@ -127,7 +127,7 @@ const tap = async (n) => { const {x,y}=xy(n);
   await send("Input.dispatchTouchEvent",{type:"touchEnd",touchPoints:[]});
   await sleep(450); };
 
-await ev(`(() => { const b=document.querySelector('[data-testid="move-live"]'); b&&b.click(); })()`);
+await ev(`(() => { const b=document.querySelector('[data-testid="move-nav-position"]'); b&&!b.disabled&&b.click(); })()`);
 await sleep(400);
 const mv = moves[1];
 await tap(mv.slice(0,2));
