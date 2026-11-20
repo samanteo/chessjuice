@@ -116,7 +116,28 @@ reset_log; clear_state
 run_watchdog "$BATT_LOW"
 ok "$(grep -qi 'puzzle trainer' "$TLOG" && echo 1 || echo 0)" "alert explains the real consequence (puzzle trainer goes down)"
 
-# ---- 10. Never exits non-zero (a watchdog must not page about itself) -------
+# ---- 10. NON-dry wiring: the alert reaches the notifier, and the path resolves
+# The dry-run cases above all return BEFORE notify() runs, so they prove nothing
+# about the delivery path. This stubs the notifier and asserts it was called —
+# the only test that catches a broken NOTIFY path or a bad interpreter.
+STUB="$(mktemp -d)"
+RECV="$(mktemp -u)"
+cat >"$STUB/notify.sh" <<'EOF'
+#!/bin/bash
+printf '%s\n' "$*" >"$NOTIFY_RECEIVED"
+exit 0
+EOF
+chmod +x "$STUB/notify.sh"
+clear_state
+FAKE_PMSET_OUT="$BATT_LOW" PATH="$FAKEBIN:$PATH" \
+  NOTIFY_BIN="$STUB/notify.sh" NOTIFY_RECEIVED="$RECV" \
+  BATTERY_WATCHDOG_LOG="$TLOG" BATTERY_WATCHDOG_STATE="$TSTATE" \
+  "$SCRIPT"
+ok "$([ -s "$RECV" ] && echo 1 || echo 0)" "non-dry run actually reaches the notifier (path resolves)"
+ok "$(grep -q 'BATTERY' "$RECV" && echo 1 || echo 0)" "the notifier receives the real alert text"
+rm -rf "$STUB" "$RECV"
+
+# ---- 11. Never exits non-zero (a watchdog must not page about itself) -------
 clear_state
 run_watchdog "$BATT_LOW" >/dev/null 2>&1
 ok "$([ "$?" = "0" ] && echo 1 || echo 0)" "always exits 0"

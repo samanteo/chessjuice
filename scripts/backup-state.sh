@@ -29,6 +29,25 @@ cd "$REPO" || { echo "puzzle-trainer backup FAILED: cannot cd to $REPO"; exit 1;
 
 log() { echo "$(date -Iseconds) $*" >>"$LOG"; }
 
+# Shared notifier — the single place that knows the alert channel. Falls back to
+# the main bot when no dedicated alert bot is configured.
+NOTIFY="$(cd "$(dirname "$0")" && pwd)/notify.sh"
+
+# A failure here is exactly the case the user needs to hear about, and printing it
+# alone reached nobody: this job's `deliver: origin` is a CLI session with no
+# channel attached. So report it BOTH ways — the log for diagnosis, the notifier
+# so it actually lands somewhere they read.
+fail() {
+  log "FAILED: $1"
+  printf 'puzzle-trainer backup FAILED: %s\n' "$1"
+  "$NOTIFY" "❌ puzzle-trainer BACKUP FAILED
+
+$1
+
+Your puzzles are still safe in the browser and on the Mac — this is about the offsite copy." || true
+  exit 1
+}
+
 # Nothing changed since the last commit -> silent success.
 if git diff --quiet -- "$STATE" && git diff --cached --quiet -- "$STATE"; then
   log "no change, nothing to do"
@@ -41,14 +60,10 @@ git add -- "$STATE" || { log "git add failed"; echo "puzzle-trainer backup FAILE
 # happened once (a test cleanup ran before the commit); pushing it would destroy
 # the good copy on the remote.
 if [ ! -s "$STATE" ]; then
-  log "state file is EMPTY — refused"
-  echo "puzzle-trainer backup FAILED: $STATE is empty. Not pushing a wiped file. Restore from git history."
-  exit 1
+  fail "$STATE is empty. Not pushing a wiped file. Restore from git history."
 fi
 if ! python3 -c "import json,sys; d=json.load(open('$STATE')); sys.exit(0 if isinstance(d,dict) and len(d)>0 else 1)" 2>/dev/null; then
-  log "state file is not valid non-empty JSON — refused"
-  echo "puzzle-trainer backup FAILED: $STATE is not valid JSON. Restore from git history."
-  exit 1
+  fail "$STATE is not valid JSON. Restore from git history."
 fi
 
 COUNT=$(python3 -c "
@@ -72,6 +87,4 @@ if git push -q origin main >>"$LOG" 2>&1; then
   exit 0
 fi
 
-log "PUSH FAILED — committed locally but NOT offsite"
-echo "puzzle-trainer backup FAILED: committed locally but could not push to GitHub. Your data is NOT offsite yet. Check ssh/git access and run: cd $REPO && git push origin main"
-exit 1
+fail "committed locally but could not push to GitHub. Your data is NOT offsite yet. Check ssh/git access and run: cd $REPO && git push origin main"

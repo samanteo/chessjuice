@@ -36,12 +36,18 @@ STATE="${BATTERY_WATCHDOG_STATE:-/tmp/puzzle-trainer-battery.state}"
 # Tests/troubleshooting can set BATTERY_WATCHDOG_DRY_RUN=1 to print the alert
 # instead of sending it, so the suite never spams the real Telegram channel.
 DRY_RUN="${BATTERY_WATCHDOG_DRY_RUN:-0}"
+# Delivery goes through the shared notifier, so ALL watchdogs target the same
+# channel (a dedicated alert bot when configured). See scripts/notify.sh.
+# NOTE: resolve with `cd`+`pwd`, NOT `readlink -f` — that flag is GNU-only and
+# BSD/macOS readlink rejects it, which would silently point this at a
+# non-existent path. The dry-run guard returns BEFORE notify() runs, so the test
+# suite cannot catch that; only a real (non-dry) run proves the path works.
+NOTIFY="${NOTIFY_BIN:-$(cd "$(dirname "$0")" && pwd)/notify.sh}"
 
 LOW_PCT=40          # at/below this, alert immediately and urgently
 SETTLE_S=120        # a battery reading must persist this long to count
 NAG_S=$((6 * 3600)) # normal re-alert interval while on battery
 URGENT_NAG_S=1800   # re-alert interval once below LOW_PCT
-HERMES="${HERMES_BIN:-/Users/sam/.hermes/hermes-agent/venv/bin/hermes}"
 
 log() { printf '%s %s\n' "$(date '+%F %T')" "$*" >>"$LOG" 2>/dev/null; }
 
@@ -51,7 +57,7 @@ notify() {
     log "DRY-RUN would send: $msg"
     return 0
   fi
-  if "$HERMES" send --to "$TARGET" "$msg" >>"$LOG" 2>&1; then
+  if "$NOTIFY" "$msg" >>"$LOG" 2>&1; then
     log "alerted: $msg"
   else
     log "ALERT FAILED to send: $msg"

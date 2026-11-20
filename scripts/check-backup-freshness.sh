@@ -74,10 +74,18 @@ if [ ${#problems[@]} -eq 0 ]; then
   exit 0   # healthy -> silent
 fi
 
-echo "⚠️  puzzle-trainer BACKUP PROBLEM"
+# Build the message ONCE, then print it AND push it to the alert channel.
+# Printing alone reached nobody: this job's `deliver: origin` is a CLI session
+# with no channel attached, so a stale backup produced no notification at all.
+msg="⚠️ puzzle-trainer BACKUP PROBLEM"
 for p in "${problems[@]}"; do
-  echo "  - $p"
+  msg="${msg}
+  - ${p}"
 done
-echo
-echo "Your puzzles are still safe in the browser and on the Mac; this is about the offsite copy."
+msg="${msg}
+
+Your puzzles are still safe in the browser and on the Mac; this is about the offsite copy."
+
+printf '%s\n' "$msg"
+"${NOTIFY_BIN:-$(cd "$(dirname "$0")" && pwd)/notify.sh}" "$msg"
 exit 1
