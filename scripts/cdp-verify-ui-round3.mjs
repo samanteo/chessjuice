@@ -19,7 +19,9 @@ const ev = async (e) => (await send("Runtime.evaluate", { expression: e, returnB
 
 await send("Runtime.enable"); await send("Page.enable");
 await send("Network.setCacheDisabled", { cacheDisabled: true });
-await send("Emulation.setDeviceMetricsOverride", { width: 390, height: 844, deviceScaleFactor: 3, mobile: true });
+// 664, not 844: 844 is the whole screen including Safari's address and tab bars,
+// and no phone gives the page that much.
+await send("Emulation.setDeviceMetricsOverride", { width: 390, height: 664, deviceScaleFactor: 3, mobile: true });
 await send("Page.navigate", { url: "http://localhost:3000/?cb=" + Date.now() });
 await sleep(13000);
 await ev(`localStorage.clear()`);
@@ -86,6 +88,7 @@ const board = await ev(`(() => {
   return {
     topLabel: top?.innerText.trim(),
     topY: r(top)?.y, hardY: r(hard)?.y,
+    skipX: r(top)?.x, hardX: r(hard)?.x,
     sameColumn: top && hard ? Math.abs(r(top).x - r(hard).x) < 8 : null,
     youText: you?.innerText.replace(/\\s+/g,' ').trim() ?? null,
     storedRating: stored,
@@ -93,9 +96,16 @@ const board = await ev(`(() => {
   };
 })()`);
 console.log("board:", JSON.stringify(board));
-ok(board.topY !== undefined && board.hardY !== undefined && board.topY < board.hardY,
-   `primary button is ABOVE Hard (top y=${Math.round(board.topY)} < hard y=${Math.round(board.hardY)})`);
-ok(board.sameColumn, "Next/Skip and Hard are stacked in the same column");
+// PHONE: Skip and Hard sit SIDE BY SIDE. They used to be stacked in one column
+// ("Next above, Hard below"), and this check used to require that. Making them a
+// row is what bought the ~40px that lets the whole panel fit one phone screen —
+// the vertical order carries no meaning on a phone, so halving the height is
+// strictly better than preserving it. The desktop order is asserted separately
+// at the end of this file so it cannot be lost silently.
+ok(board.topY !== undefined && board.hardY !== undefined && Math.abs(board.topY - board.hardY) < 6,
+   `Skip and Hard share one row on a phone (skip y=${Math.round(board.topY)} vs hard y=${Math.round(board.hardY)})`);
+ok(board.skipX !== undefined && board.hardX !== undefined && board.skipX < board.hardX,
+   `Skip sits LEFT of Hard on a phone (skip x=${Math.round(board.skipX)} < hard x=${Math.round(board.hardX)})`);
 ok(
   board.storedRating != null && new RegExp(`You\\s*${board.storedRating}`).test(board.youText ?? ""),
   `your own rating is visible on the board and matches the app's (${board.youText} vs stored ${board.storedRating})`
@@ -156,6 +166,33 @@ const timerSet = await ev(`(() => {
 console.log("timer after selecting 1 min:", JSON.stringify(timerSet));
 ok(timerSet.prefs === 60, `selecting 1 min persisted to prefs (${timerSet.prefs})`);
 ok(timerSet.markedOn === "1", "the chosen option is marked active");
+
+// ---------- Desktop: the button order the user asked for is preserved --------
+// "keep the next puzzle button at the top like how it is". Only the PHONE stacks
+// these two into a row; without this check, a later change to the mobile rules
+// could flatten the desktop layout and nothing would notice.
+await send("Emulation.setDeviceMetricsOverride", { width: 1280, height: 800, deviceScaleFactor: 1, mobile: false });
+await sleep(2000);
+await ev(`document.querySelector('[data-testid="tab-training"]')?.click()`);
+await sleep(1500);
+if (!(await ev(`!!document.querySelector('[data-testid="hard-button"]')`))) {
+  await ev(`document.querySelector('[data-testid="quickstart-button"]')?.click()`);
+  await sleep(9000);
+}
+const desk = await ev(`(() => {
+  const next = document.querySelector('[data-testid="next-button"]');
+  const hard = document.querySelector('[data-testid="hard-button"]');
+  const skip = document.querySelector('[data-testid="skip-button"]');
+  const top = next || skip;
+  const r = (e) => e ? e.getBoundingClientRect() : null;
+  return { label: (top?.innerText || '').trim(), topY: r(top)?.y, hardY: r(hard)?.y,
+           topX: r(top)?.x, hardX: r(hard)?.x };
+})()`);
+console.log("desktop board:", JSON.stringify(desk));
+ok(desk.topY !== undefined && desk.hardY !== undefined && desk.topY < desk.hardY,
+   `DESKTOP: primary button is still ABOVE Hard (${Math.round(desk.topY)} < ${Math.round(desk.hardY)})`);
+ok(desk.topX !== undefined && desk.hardX !== undefined && Math.abs(desk.topX - desk.hardX) < 8,
+   `DESKTOP: they are still stacked in one column (x ${Math.round(desk.topX)} vs ${Math.round(desk.hardX)})`);
 
 const errs = events.filter(e => e.method === "Runtime.exceptionThrown");
 ok(errs.length === 0, `no uncaught exceptions (${errs.length})`);

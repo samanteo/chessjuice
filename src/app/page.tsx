@@ -1055,9 +1055,14 @@ function PuzzleDashboardPageInner() {
       {/* Header */}
       <header className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 sticky top-0 z-40">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between h-16">
+          {/* h-16 / py-6 below are desktop sizes. On a phone the header is pure
+              branding above the board, so it shrinks to h-11 and main's top
+              padding drops to 8px — 44px of vertical space that now belongs to
+              the board/controls instead of to a title bar. Trimmed only on
+              mobile (sm:) so the desktop layout is untouched. */}
+          <div className="flex items-center justify-between h-11 sm:h-16">
             <div className="flex items-center gap-4">
-              <h1 className="text-2xl font-bold text-gray-900 dark:text-white">♟️ Puzzle Trainer</h1>
+              <h1 className="text-lg sm:text-2xl font-bold text-gray-900 dark:text-white">♟️ Puzzle Trainer</h1>
 
               {/* Tab Navigation */}
               <nav className="hidden md:flex items-center gap-1 bg-gray-100 dark:bg-gray-700 rounded-lg p-1">
@@ -1115,7 +1120,7 @@ function PuzzleDashboardPageInner() {
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
-              className={`flex-1 min-w-0 flex flex-col items-center justify-center gap-0.5 py-2 transition-colors ${
+              className={`flex-1 min-w-0 flex flex-col items-center justify-center gap-0.5 py-1.5 transition-colors ${
                 activeTab === tab.id
                   ? "bg-white dark:bg-gray-800 text-blue-600 dark:text-blue-400"
                   : "text-gray-600 dark:text-gray-300"
@@ -1130,8 +1135,9 @@ function PuzzleDashboardPageInner() {
         </nav>
       </header>
 
-      {/* Main content */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+      {/* Main content — py-6 is the desktop rhythm; on a phone the board wants
+          that space, so the top padding drops to 4px. */}
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-1 sm:py-6">
         {activeTab === "training" && (
           <TrainingTab
             themeCounts={themeCounts}

@@ -661,6 +661,21 @@ body {
    does when you scroll and the head leaves the viewport. Same panel, nothing
    scrolled off. */
 @media (max-width: 899px) {
+  /* --- Height is content-driven on a phone; the board fills the WIDTH --------
+     The frame was locked to `100vh - --board-header` and the panel to
+     height:100% + overflow:hidden. That is what made a SQUARE board shrink to
+     ~55% of the screen: a phone's usable viewport (~660-700px, after Safari's
+     address and tab bars) is much shorter than the screen is tall-looking, so
+     fitting the height starved the width and left big dead margins either side.
+     Both are auto now, so the board gets the full width and the page scrolls
+     instead of shrinking it. The old lock bought nothing: docHeight was already
+     1316-1560 against a 463-707 frame because of the pinned-theme list below.
+     Measured by scripts/cdp-diag-board-width.mjs. */
+  .board-frame { height: auto; max-height: none; }
+  .board-panel { height: auto; }
+  /* Full-bleed: no gutter between the board and the screen edge. */
+  .board-stage { flex: 0 0 auto; padding: 0; }
+
   .board-panel__head {
     padding: 0.3rem 0.7rem;
     gap: 0.4rem;
@@ -688,12 +703,98 @@ body {
     padding-bottom: 0.08rem;
   }
   .board-panel__foot { padding-top: 0.3rem; padding-bottom: 0.3rem; }
-  /* Minimum gap between the two stacked buttons (Next above Hard). The panel has
-     to fit one phone screen, and this 4px is what brings the Hard button's bottom
-     edge back inside the fold. */
-  .board-actions__primary { gap: 0.15rem; }
-  /* Keep the session strip compact — it is its own row now, so its height is
-     pure overhead on a phone. */
+
+  /* --- Compact the chrome ------------------------------------------------
+     Now that the board is WIDTH-driven, chrome height no longer costs board
+     size — it only decides whether the whole panel fits one screen without
+     scrolling. So the aim here is simply fewer rows.
+     The head is two rows: theme+puzzle-id, then the meta pills. Force the pills
+     onto ONE scrollable row instead of letting them wrap to a third (they used
+     to wrap on long theme names, which is why the head measured 94 or 120 at
+     random). */
+  .board-panel__head { padding: 0.15rem 0.7rem; gap: 0.1rem 0.5rem; }
+  /* ONE row: theme + puzzle id pinned left, the pills scrolling beside them.
+     NOTE `.board-panel__meta` is a CHILD of `.board-panel__titles`, not a
+     sibling — the row has to be built on the titles container. (Reading the DOM
+     as siblings and putting flex:0 0 auto on the titles made it size to its
+     content: 601px wide inside a 390px viewport.) Two rows cost 66px; on a phone
+     that is the difference between the panel fitting one screen and its last row
+     falling below the fold. Theme and puzzle id must stay readable, so they are
+     fixed and the pills take the scroll. */
+  .board-panel__titles {
+    flex: 1 1 auto;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 0.1rem 0.5rem;
+    flex-wrap: nowrap;
+  }
+  .board-panel__titles > div:first-child { flex: 0 0 auto; }   /* theme label */
+  .board-panel__title { flex: 0 0 auto; }
+  .board-panel__meta {
+    margin-top: 0;
+    flex: 1 1 auto;
+    min-width: 0;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .board-panel__meta::-webkit-scrollbar { display: none; }
+  .board-panel__meta > * { flex: 0 0 auto; }
+
+  /* Skip + Hard side by side — two rows become one. The primary column is
+     stacked on desktop (Next above Hard, which is what the user asked for
+     there); on a phone the vertical order carries no meaning, so halving the
+     height is strictly better than preserving it. */
+  .board-actions__primary {
+    flex-direction: row;
+    flex: 1 1 auto;
+    gap: 0.35rem;
+  }
+  .board-actions__primary > button { flex: 0 0 auto; width: auto; }
+
+  /* Give the strip's label room to breathe. It shares its row with Skip + Hard,
+     and at their natural padding it was squeezed to a 61px label that ellipsised
+     to "Fork · Pu…". Trimmed here the buttons are still 44px tall (the touch
+     target that matters), and every px they give up goes to the label. */
+  .board-actions__primary > button { padding-left: 0.5rem; padding-right: 0.5rem; }
+  .board-panel__foot [data-testid="session-prev"],
+  .board-panel__foot [data-testid="session-next"] {
+    padding-left: 0.3rem;
+    padding-right: 0.3rem;
+  }
+
+  /* Fold the session strip into the button row. As its own row it was ~40px of
+     pure overhead above Skip/Hard; sharing the row costs no vertical space.
+     flex-wrap + a 100% basis on the pips matters: the progress bar is ALSO a
+     child of the foot, so without this the row dragged it in and crushed it to
+     17px wide. Wrap puts it back on its own full-width line beneath. */
+  .board-panel__foot {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.35rem;
+  }
+  .board-panel__foot > [data-testid="session-strip"] {
+    /* basis 0, not auto: with an auto basis the strip's content width plus the
+       buttons exceeded the line, so it grew to fill the line and WRAPPED the
+       buttons onto their own row — three rows instead of two, and the foot got
+       taller (123px) than before the fold. Starting from 0 lets both share one
+       line and the strip takes whatever is left over. */
+    flex: 1 1 0;
+    min-width: 0;
+  }
+  /* Let the buttons size to their text and give everything left over to the
+     strip: at 55% the action column starved it to 139px and clipped the label. */
+  .board-panel__foot > .board-panel__actions { flex: 0 0 auto; }
+  .board-panel__foot > .board-panel__progress { flex: 1 1 100%; }
+
+  /* The move-nav row (Solution / arrows) is 58px; its vertical padding is pure
+     overhead when every px decides whether the panel fits one screen. */
+  [data-testid="move-nav"] { padding-top: 0.15rem !important; padding-bottom: 0.15rem !important; }
+  /* Keep the session strip compact — it shares the button row now, so anything
+     it adds vertically is added to the whole foot. */
   [data-testid="session-strip"] { padding-top: 0.05rem; padding-bottom: 0.05rem; }
 }
 .board-panel__progress {

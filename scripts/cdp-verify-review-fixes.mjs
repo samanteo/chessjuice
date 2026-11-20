@@ -30,7 +30,10 @@ const ok = (c, m) => { c ? (pass++, console.log("  PASS", m)) : (fail++, console
 
 await send("Runtime.enable"); await send("Page.enable");
 await send("Network.setCacheDisabled", { cacheDisabled: true });
-await send("Emulation.setDeviceMetricsOverride", { width: 390, height: 844, deviceScaleFactor: 3, mobile: true });
+// 664, not 844: 844 is the whole screen including Safari's address and tab bars,
+// and no phone gives the page that much. Testing at 844 is what let a board that
+// was really 55% of the width pass a "full-bleed" check.
+await send("Emulation.setDeviceMetricsOverride", { width: 390, height: 664, deviceScaleFactor: 3, mobile: true });
 
 // Clean slate on both sides.
 await fetch("http://localhost:3000/api/state?confirm=1", { method: "DELETE" }).catch(() => {});
@@ -67,8 +70,19 @@ const t = await ev(`(() => {
   const sol = [...document.querySelectorAll('button')].find(b=>/^Solution$/i.test(b.innerText.trim()));
   const skip = document.querySelector('[data-testid="next-button"]') || document.querySelector('[data-testid="skip-button"]');
   const cs = strip ? getComputedStyle(strip) : null;
+  // Buttons in the FOOT specifically, excluding the strip's own prev/next arrows.
+  // Using next-button for the horizontal check is a trap: in the FAILED state it
+  // lives in the move-nav row ABOVE (x~92), so comparing against it says nothing
+  // about whether the strip overlaps the buttons it actually shares a row with.
+  const foot = document.querySelector('.board-panel__foot');
+  const footLeft = foot
+    ? Math.min(...[...foot.querySelectorAll('button')]
+        .filter(b => !strip || !strip.contains(b))
+        .map(b => Math.round(b.getBoundingClientRect().x)))
+    : null;
   return { boardUp: !!document.querySelector('[data-board-context="training"]'),
            sol: r(sol), skip: r(skip), strip: r(strip), stripBg: cs ? cs.backgroundColor : null,
+           footLeft,
            movenav: r(document.querySelector('[data-testid="move-nav"]')),
            hard: r(document.querySelector('[data-testid="hard-button"]')) };
 })()`);
@@ -82,10 +96,23 @@ ok(t.strip !== null, "session strip renders inside the TRAINING board foot");
 ok(t.strip && t.movenav && t.strip.y >= t.movenav.bottom,
    `strip is clear of the move-scrub row above it (strip top ${t.strip?.y} >= move-nav bottom ${t.movenav?.bottom})`);
 // NOTE: `skip` above resolves to `next-button`, which in the FAILED state lives
-// in the move-nav row ABOVE the strip — so "above the Skip/Hard column" must be
-// asserted against HARD, the button that actually sits below the strip.
-ok(t.strip && t.hard && t.strip.bottom <= t.hard.y,
-   `strip sits ABOVE the Hard button in the foot (strip bottom ${t.strip?.bottom} <= Hard top ${t.hard?.y})`);
+// in the move-nav row ABOVE the strip — so assertions about the strip's
+// relationship to the BUTTONS must use HARD / skip-button, which share its row.
+//
+// The strip SHARES THE ROW with Skip/Hard now. It used to be on its own row
+// directly above them, and this check used to require that ("strip bottom <=
+// Hard top"). The fold is deliberate: its own row cost ~40px, which was exactly
+// the difference between the whole panel fitting one phone screen and its last
+// row (the progress pips) falling below the fold. So the assertion is now "same
+// row, and to the LEFT of the buttons rather than over them".
+const btnLeft = t.footLeft; // buttons that actually share the strip's row
+const rowOverlap = t.strip && t.hard
+  ? Math.min(t.strip.bottom, t.hard.bottom) - Math.max(t.strip.y, t.hard.y)
+  : -1;
+ok(rowOverlap >= 24,
+   `strip shares the button row (${rowOverlap}px of vertical overlap with Skip/Hard)`);
+ok(t.strip && btnLeft != null && t.strip.x + t.strip.w <= btnLeft + 1,
+   `strip sits LEFT of the buttons, not over them (strip right ${t.strip ? t.strip.x + t.strip.w : "?"} <= buttons left ${btnLeft})`);
 ok(!!t.stripBg && t.stripBg !== "rgba(0, 0, 0, 0)" && t.stripBg !== "transparent",
    `strip has a visible background, not the page colour (${t.stripBg})`);
 

@@ -252,7 +252,17 @@ export const ChessgroundWrapper = forwardRef<any, ChessgroundWrapperProps>(
       appliedClsRef.current = next;
     }, [pieceSet, boardTheme]);
 
-    // --- Fit the board to the available space (square = min(availW, availH)) ---
+    // --- Fit the board to the available space ---
+    // Wide viewports: a square that fits BOTH ways, so it never overflows a panel
+    // (min(availW, availH)).
+    //
+    // Phones: fit the WIDTH only. A phone's usable viewport is ~660-700px once
+    // Safari's address and tab bars are subtracted, which is far shorter than it
+    // is wide-looking, so fitting the height collapsed the square to ~55% of the
+    // screen width and left big dead margins either side — the user's "board still
+    // small, need it to touch the borders of the phone". Filling the width makes
+    // the board as big as the screen allows; the panel grows to match and the page
+    // scrolls instead of squashing the board. See cdp-diag-board-width.mjs.
     useEffect(() => {
       const el = containerRef.current;
       if (!el) return;
@@ -265,7 +275,8 @@ export const ChessgroundWrapper = forwardRef<any, ChessgroundWrapperProps>(
         const padY = parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom);
         const availW = rect.width - padX;
         const availH = rect.height - padY;
-        const size = Math.max(200, Math.floor(Math.min(availW, availH)));
+        const widthDriven = window.matchMedia("(max-width: 899px)").matches;
+        const size = Math.max(200, Math.floor(widthDriven ? availW : Math.min(availW, availH)));
         el.style.width = size + "px";
         el.style.height = size + "px";
       };

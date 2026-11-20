@@ -60,7 +60,10 @@ const measure = () => ev(`(() => {
 
 await send("Runtime.enable"); await send("Page.enable");
 await send("Network.setCacheDisabled", { cacheDisabled: true });
-await send("Emulation.setDeviceMetricsOverride", { width: 390, height: 844, deviceScaleFactor: 3, mobile: true });
+// 664, not 844: 844 is the whole screen including Safari's address and tab bars,
+// and no phone gives the page that much. Measuring at 844 is what let a board
+// that was really 55% of the width be reported as "full-bleed".
+await send("Emulation.setDeviceMetricsOverride", { width: 390, height: 664, deviceScaleFactor: 3, mobile: true });
 
 // ---- reach a live Training board -------------------------------------------
 await send("Page.navigate", { url: "http://localhost:3000/?s=" + Date.now() });

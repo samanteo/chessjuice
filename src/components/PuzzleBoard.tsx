@@ -914,7 +914,12 @@ export function PuzzleBoard({
                 data-skip-armed={skipArmed ? "true" : "false"}
                 title="Abandons this puzzle without recording it."
               >
-                {skipArmed ? "Tap again to skip ↷" : "Skip puzzle"}
+                {/* Short labels on a phone: the strip shares this row and every
+                    px "Skip puzzle" takes comes off the strip's label, which was
+                    ellipsising the position ("Fork · Puzz…") — losing the one
+                    thing the strip exists to show. "Tap again to skip ↷" is even
+                    longer, so it would also make the row width jump on arming. */}
+                {skipArmed ? (isWide ? "Tap again to skip ↷" : "Tap again ↷") : isWide ? "Skip puzzle" : "Skip"}
               </button>
             )}
             <button
