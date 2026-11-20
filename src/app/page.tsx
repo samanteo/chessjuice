@@ -1302,6 +1302,8 @@ function TrainingTab({
   };
 
   const boardUpHere = boardContext === "training" && !!selectedPuzzle;
+  // How many puzzles a Quick start run serves per pinned theme.
+  const quickStartCount = Math.max(1, settings?.quickStartCount ?? 10);
 
   const quickStartRow = (
     <div className="mb-4 flex flex-wrap items-center gap-4">
@@ -1319,10 +1321,25 @@ function TrainingTab({
           ▶ Quick start
         </button>
 
+        {/* Before starting: how big the run will be. The user could not tell how
+            many puzzles an auto-play would serve, so state it up front. */}
+        {!quickRun && pinned.length > 0 && (
+          <span className="text-xs text-gray-400 dark:text-[#6b6a68] tabular-nums" data-testid="quickrun-plan">
+            {pinned.length} theme{pinned.length === 1 ? "" : "s"} × {quickStartCount} ={" "}
+            {pinned.length * quickStartCount} puzzles
+          </span>
+        )}
+
         {quickRun && (
           <div className="flex items-center gap-3 flex-wrap" data-testid="quickrun-status">
             <span className="text-sm font-semibold text-gray-800 dark:text-[#e5e0d8] tabular-nums" data-testid="quickrun-counter">
               {quickRun.done + 1} / {quickRun.count}
+            </span>
+            <span className="text-xs text-gray-400 dark:text-[#6b6a68] tabular-nums" data-testid="quickrun-total">
+              {quickRun.themeIndex * quickRun.count + quickRun.done + 1} of{" "}
+              {quickRun.themes.length * quickRun.count}
+              {" · "}
+              {Math.max(0, quickRun.themes.length * quickRun.count - (quickRun.themeIndex * quickRun.count + quickRun.done))} left
             </span>
             <span className="text-xs text-gray-400 dark:text-[#6b6a68] tabular-nums">
               theme {quickRun.themeIndex + 1} of {quickRun.themes.length}
