@@ -88,14 +88,17 @@ const nav = await ev(`(() => {
 console.log("move nav:", JSON.stringify(nav));
 ok(/\d+\s*\/\s*\d+/.test(nav.counter ?? ""), `move nav shows a position counter (${nav.counter})`);
 
-// Step back and confirm the view really changes.
-const fenAt = () => ev(`document.querySelector('cg-board') ? [...document.querySelectorAll('piece')].map(p=>p.getAttribute('style')||'').join('|').length : -1`);
-const endLen = await fenAt();
-await ev(`(() => { const b=document.querySelector('[data-testid="move-back"]'); for(let i=0;i<6;i++) b && b.click(); })()`);
-await sleep(1200);
-const startLen = await fenAt();
-console.log("piece-signature end vs after stepping back:", endLen, startLen);
-ok(startLen !== endLen, "stepping back with ◀ changes the displayed position");
+// Step back and confirm the view really changes. Read the POSITION from
+// data-fen — a style-string length is a weak hash (two positions can produce the
+// same length), and it also flaked when read mid-animation.
+const fenAt = () => ev(`document.querySelector('[data-testid="board-stage"]')?.getAttribute('data-fen') ?? null`);
+const endFen = await fenAt();
+await ev(`(() => { const b = document.querySelector('[data-testid="move-back"]'); for(let i=0;i<6;i++) b && b.click(); })()`);
+await sleep(1500);
+const startFen = await fenAt();
+console.log("fen end vs after stepping back:", endFen, "->", startFen);
+ok(!!endFen && !!startFen, "the board exposes its position on both reads");
+ok(startFen !== endFen, "stepping back with ◀ changes the displayed position");
 
 // Pressing Next must not double-record.
 const beforeNext = (await boardState()).attempts;
@@ -118,7 +121,10 @@ const t1 = await boardState();
 console.log("after expiry (+9s):", JSON.stringify(t1));
 ok(t1.up, "board STAYS after the clock runs out (was: it exited)");
 ok(t1.id === t0.id, `still the SAME puzzle after timeout (${t1.id})`);
-ok(/time|best move/i.test(t1.feedback ?? ""), `the user is told what happened (${t1.feedback})`);
+// The banner is deliberately ONE short line ("Puzzle failed") — the full line is
+// played onto the board, so the old "the best move was X" sentence was removed to
+// save height on a phone. Accept either wording.
+ok(/time|best move|failed/i.test(t1.feedback ?? ""), `the user is told what happened (${t1.feedback})`);
 ok(t1.next && !t1.skip, "Next puzzle is offered after a timeout");
 ok(t1.attempts === 1, `timeout recorded exactly once (${t1.attempts})`);
 

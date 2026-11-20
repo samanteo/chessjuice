@@ -198,6 +198,13 @@ export function PuzzleBoard({
   // away — but the board stays put so the solution can be studied. Pressing
   // "Next puzzle" must therefore NOT record it a second time.
   const recordedRef = useRef(false);
+  // The solution line is played onto the board exactly ONCE per puzzle. A second
+  // tap used to append the whole line again and land on the FINAL position —
+  // which is what "the solution starts at the last move" really was: the first
+  // tap leaves the board on the position you were already looking at (the start
+  // of the line), so nothing visibly changes and a second tap is natural.
+  const playedOutRef = useRef(false);
+  const lineStartRef = useRef(0);
   const recordOnce = useCallback(
     (attempt: PuzzleAttempt) => {
       if (recordedRef.current) return;
@@ -212,6 +219,14 @@ export function PuzzleBoard({
   // outcome leaves the full line on the board, step-through-able with the ◀ ▶
   // controls (each position is appended to `history`).
   const playOutRemaining = useCallback(() => {
+    // Idempotent: if the line is already on the board, just walk the view back to
+    // its start. Re-appending would duplicate every position in `history` and
+    // drop the counter on the final move — the "solution starts at the last
+    // move" report.
+    if (playedOutRef.current) {
+      setScrubIndex(lineStartRef.current);
+      return;
+    }
     const g = new Chess(gameRef.current.fen());
     let last: Key[] | undefined;
     const steps: Snapshot[] = [];
@@ -227,6 +242,8 @@ export function PuzzleBoard({
     const startIdx = history.length - 1;
 
     if (steps.length > 0) {
+      playedOutRef.current = true;
+      lineStartRef.current = startIdx;
       setHistory((h) => [...h, ...steps]);
       // Land on the START of the line, not the end. Showing the final position
       // meant you had to rewind to move 1 every single time to see how the
@@ -243,6 +260,8 @@ export function PuzzleBoard({
   // Initialize / reset whenever the puzzle changes
   useEffect(() => {
     clearTimers();
+    playedOutRef.current = false;
+    lineStartRef.current = 0;
     const g = new Chess(puzzle.fen);
     gameRef.current = g;
     startTimeRef.current = Date.now();
@@ -560,8 +579,22 @@ export function PuzzleBoard({
   // untouched, so reviewing can never score the puzzle as wrong.
   const canGoBack = history.length > 1 && (scrubIndex === null || scrubIndex > 0);
   const canGoForward = scrubIndex !== null && scrubIndex < history.length - 1;
+  // The solver plays the odd-indexed plies (0 is the opponent's setup move),
+  // so the number of moves YOU have to find is floor(plies / 2).
+  const solverMoveNumber = Math.floor(moveIndex / 2) + 1;
+  const solverTotal = Math.max(1, Math.floor(solutionMoves.length / 2));
+  const movesLeft = Math.max(0, solverTotal - (solverMoveNumber - 1));
+
   const displayIndex = scrubIndex === null ? history.length - 1 : scrubIndex;
   const displayView = history[displayIndex] ?? view;
+  // The counter used to print the raw HISTORY index ("1 / 1" at the start of a
+  // 4-move puzzle, because history only held the setup position). It must speak
+  // in the solver's own moves: position 1 is the start of solver move 1, position
+  // 2 is the same move just played, position 3 starts move 2, and so on.
+  const displaySolverMove = Math.min(
+    solverTotal,
+    Math.max(1, Math.ceil(displayIndex / 2))
+  );
 
   const goBack = useCallback(() => {
     setScrubIndex((cur) => {
@@ -630,11 +663,6 @@ export function PuzzleBoard({
   useEffect(() => () => clearTimers(), []);
 
   const orientation = solverColor;
-  // The solver plays the odd-indexed plies (0 is the opponent's setup move),
-  // so the number of moves YOU have to find is floor(plies / 2).
-  const solverMoveNumber = Math.floor(moveIndex / 2) + 1;
-  const solverTotal = Math.max(1, Math.floor(solutionMoves.length / 2));
-  const movesLeft = Math.max(0, solverTotal - (solverMoveNumber - 1));
 
   // Highlight the king when the side to move is in check (if enabled).
   const check = useMemo<"white" | "black" | undefined>(() => {
@@ -653,7 +681,11 @@ export function PuzzleBoard({
   const attemptLive = status === "playing" && attemptTouched;
 
   return (
-    <div className="board-panel" data-attempt={attemptLive ? "live" : "idle"}>
+    <div
+      className="board-panel"
+      data-attempt={attemptLive ? "live" : "idle"}
+      data-resolved={status === "playing" ? "false" : "true"}
+    >
       {/* Head */}
       <div className="board-panel__head">
         <div className="board-panel__titles">
@@ -687,12 +719,19 @@ export function PuzzleBoard({
             <span className="pill pill-you" data-testid="user-rating">
               You&nbsp;<span className="tabular">{userRating}</span>
             </span>
-            <span className="pill pill-accent">
-              {solverColor === "white" ? "White" : "Black"} to move
-            </span>
+            {/* "White to move" is only meaningful while the attempt is open. Once
+                the puzzle resolves it is dead weight in a row that has to fit the
+                theme chips, so it yields its space. */}
+            {status === "playing" && (
+              <span className="pill pill-accent">
+                {solverColor === "white" ? "White" : "Black"} to move
+              </span>
+            )}
             <span className="pill pill-info" data-testid="move-counter">
               {status === "correct" ? (
                 <>✓ Solved &mdash; {solverTotal} move{solverTotal === 1 ? "" : "s"}</>
+              ) : status === "wrong" ? (
+                <>Solution &mdash; {solverTotal} move{solverTotal === 1 ? "" : "s"}</>
               ) : (
                 <>
                   Move <span className="tabular">{solverMoveNumber}</span>
@@ -703,11 +742,22 @@ export function PuzzleBoard({
                 </>
               )}
             </span>
-            {puzzle.themes.slice(0, 3).map((t) => (
-              <span key={t} className="pill pill-neutral theme-chip">
-                {t}
-              </span>
-            ))}
+            {/* Themes. While solving, only the first three: the row has to stay
+                one line so the board keeps its height. Once the puzzle resolves
+                ALL of them are shown — that is the moment you want to see which
+                other patterns the position contained, and the to-move pill has
+                just freed its slot. */}
+            <span
+              className="board-panel__themes"
+              data-testid="puzzle-themes"
+              data-count={status === "playing" ? Math.min(3, puzzle.themes.length) : puzzle.themes.length}
+            >
+              {(status === "playing" ? puzzle.themes.slice(0, 3) : puzzle.themes).map((t) => (
+                <span key={t} className="pill pill-neutral theme-chip">
+                  {t}
+                </span>
+              ))}
+            </span>
           </div>
         </div>
         <div className="board-panel__side hidden sm:block">
@@ -716,7 +766,10 @@ export function PuzzleBoard({
       </div>
 
       {/* Board stage */}
-      <div className="board-stage" data-testid="board-stage">
+      {/* data-fen is the position ACTUALLY on screen — the single source of truth
+          for tests (a style hash is not: two positions can share one, and a
+          mid-animation frame can look unchanged). */}
+      <div className="board-stage" data-testid="board-stage" data-fen={displayView.fen}>
         <ChessgroundWrapper
           fen={displayView.fen}
           orientation={orientation}
@@ -840,7 +893,7 @@ export function PuzzleBoard({
                 : "text-gray-500 dark:text-[#8b8987]")
             }
           >
-            {displayIndex} / {history.length - 1}
+            {displaySolverMove} / {solverTotal}
           </button>
         </div>
       </div>

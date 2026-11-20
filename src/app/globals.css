@@ -544,6 +544,16 @@ body {
   gap: 0.4rem;
   margin-top: 0.35rem;
 }
+/* Theme chips live in their own inline row so they can wrap as a group once the
+   solution is shown (all themes, not just the first three) without pushing the
+   rating pills around. */
+.board-panel__themes {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  min-width: 0;
+}
 .board-panel__side {
   font-size: 0.78rem;
   font-weight: 600;
@@ -742,6 +752,25 @@ body {
   }
   .board-panel__meta::-webkit-scrollbar { display: none; }
   .board-panel__meta > * { flex: 0 0 auto; }
+  /* The move counter is the one pill that must never be scrolled out of sight —
+     it is how you know where you are in a multi-move line. First on a phone
+     (CSS order only; desktop keeps Rating, You, then the counter). */
+  .board-panel__meta > [data-testid="move-counter"] { order: -1; }
+  /* Once the puzzle resolves, the theme chips are the whole point of the row:
+     let it WRAP so every theme is visible without horizontal scrolling. Height
+     is content-driven on a phone now (the board is width-driven), so the extra
+     row costs a little scroll, not board size. */
+  .board-panel[data-resolved="true"] .board-panel__meta {
+    flex: 1 1 100%;
+    flex-wrap: wrap;
+    overflow-x: visible;
+  }
+  /* The chips sit in one child span; give it the full row and let IT wrap, or the
+     whole group stays a single long flex item and runs off the screen edge. */
+  .board-panel[data-resolved="true"] .board-panel__themes {
+    flex: 1 1 100%;
+    flex-wrap: wrap;
+  }
 
   /* Skip + Hard side by side — two rows become one. The primary column is
      stacked on desktop (Next above Hard, which is what the user asked for
@@ -1193,4 +1222,12 @@ body {
    Y) stays. Removing them makes the header height deterministic. */
 @media (max-width: 600px) {
   .board-panel__meta .theme-chip { display: none; }
+  /* ...but NOT once the puzzle is resolved. That is exactly when you want to see
+     which other patterns the position contained — the whole point of the request
+     "show puzzle tags when the puzzle is solved". Chips are hidden while SOLVING
+     to keep the header height deterministic; the resolved state is static, so
+     wrapping costs nothing but a little scroll. */
+  .board-panel[data-resolved="true"] .board-panel__meta .theme-chip {
+    display: inline-flex;
+  }
 }

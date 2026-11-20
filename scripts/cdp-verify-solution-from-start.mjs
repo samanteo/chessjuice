@@ -81,9 +81,13 @@ ok(after.canFwd === true, "forward is enabled, so the line can be stepped throug
 ok(after.live === true, "a 'Back to position' control is offered");
 
 // Stepping forward must actually change the position.
+// chessground ANIMATES a move; reading the piece styles too early catches the
+// board mid-transition (and sometimes an identical frame), which made this
+// assertion flake. Let the animation settle before and after the click.
+await sleep(1200);
 const s0 = await sig();
 await ev(`document.querySelector('[data-testid="move-forward"]').click()`);
-await sleep(900);
+await sleep(1800);
 const s1 = await sig();
 const afterFwd = await nav();
 console.log("after one ▶:", JSON.stringify(afterFwd), `sig ${s0} -> ${s1}`);
@@ -116,9 +120,10 @@ if (lm) {
 }
 ok(afterLoss.canFwd === true, "forward is enabled after a loss, so it can be stepped through");
 
+await sleep(1200);
 const l0 = await sig();
 await ev(`document.querySelector('[data-testid="move-forward"]').click()`);
-await sleep(900);
+await sleep(1800);
 const l1 = await sig();
 ok(l1 !== l0, "▶ advances through the solution after a loss too");
 
