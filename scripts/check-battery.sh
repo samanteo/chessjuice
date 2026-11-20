@@ -23,8 +23,10 @@
 #
 # THRESHOLD
 #   LOW_PCT = 10. Below that there is roughly half an hour of runtime left, so
-#   there is still time to act and the message is never a false alarm. Re-alerts
-#   are capped at once per 30 minutes so a long low stretch cannot spam.
+#   there is still time to act and the message is never a false alarm.
+#   ONE message per low episode — it does NOT repeat while the battery stays low,
+#   so it cannot nag no matter how long you leave it. Plugging in resets it, so
+#   the next time it drops low you are told again (once).
 
 set -uo pipefail
 
@@ -45,7 +47,6 @@ DRY_RUN="${BATTERY_WATCHDOG_DRY_RUN:-0}"
 NOTIFY="${NOTIFY_BIN:-$(cd "$(dirname "$0")" && pwd)/notify.sh}"
 
 LOW_PCT=10          # only page below this — see the decision block
-URGENT_NAG_S=1800   # re-alert at most this often (30 min)
 
 log() { printf '%s %s\n' "$(date '+%F %T')" "$*" >>"$LOG" 2>/dev/null; }
 
@@ -90,22 +91,17 @@ remaining="$(printf '%s\n' "$batt_out" | grep -o '[0-9]\{1,2\}:[0-9]\{2\} remain
 # ignored — which would defeat the whole point. 10% is roughly half an hour of
 # runtime: still time to act, and never a false alarm.
 if [ "$pct" -gt "$LOW_PCT" ]; then
-  # Comfortable. Clear any state so a later drop below LOW_PCT alerts at once
-  # instead of being suppressed by an old timestamp.
+  # Recovered. Clear the marker so a LATER drop below the threshold alerts again.
   rm -f "$STATE"
   exit 0
 fi
 
-now="$(date +%s)"
-last_alert=0
+# ONE message per low episode. The state file is a plain "already told them"
+# marker, not a re-alert timer: a battery sitting at 6% for an hour would
+# otherwise nag on every 15-minute tick, which is exactly the noise that trains
+# you to ignore a watchdog. Plugging in (or climbing back above the threshold)
+# clears the marker, so the next episode is announced once more.
 if [ -f "$STATE" ]; then
-  # shellcheck disable=SC1090
-  . "$STATE" 2>/dev/null || true
-fi
-last_alert="${last_alert:-0}"
-
-# Rate-limit, so a long stretch below the threshold cannot spam (once per 30 min).
-if [ "$((now - last_alert))" -lt "$URGENT_NAG_S" ]; then
   exit 0
 fi
 
@@ -114,5 +110,5 @@ msg="🔴 MacBook battery at ${pct}%${remaining:+ ($remaining)} — nearly empty
 Plug the charger in. If it runs out the Mac shuts down and takes the puzzle trainer (:3000) and the Telegram gateway with it."
 
 notify "$msg"
-printf 'last_alert=%s\n' "$now" >"$STATE"
+printf 'alerted_at=%s\n' "$(date +%s)" >"$STATE"
 exit 0

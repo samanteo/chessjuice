@@ -84,16 +84,21 @@ ok "$([ "$(n_alerts)" = "1" ] && echo 1 || echo 0)" "unplugged at 7% -> alerts"
 ok "$(grep -q '7%' "$TLOG" && echo 1 || echo 0)" "alert includes the actual percentage"
 ok "$(grep -qi 'puzzle trainer' "$TLOG" && echo 1 || echo 0)" "alert explains the consequence (puzzle trainer goes down)"
 
-# ---- 5. rate limit: no spam while it stays low -----------------------------
-reset_log
-run_watchdog "$(batt 7)"
-ok "$([ "$(n_alerts)" = "0" ] && echo 1 || echo 0)" "still at 7% a moment later -> silent (rate limited)"
+# ---- 5. ONE message per low episode: it must never repeat -------------------
+# Five consecutive ticks at 6% (a battery left low for over an hour) must produce
+# EXACTLY one alert. Repeating is the noise that trains you to ignore a watchdog.
+clear_state; reset_log
+for _ in 1 2 3 4 5; do run_watchdog "$(batt 6)"; done
+ok "$([ "$(n_alerts)" = "1" ] && echo 1 || echo 0)" "five ticks at 6% -> exactly ONE alert (no repeats)"
 
-# ---- 6. plugging in then dropping low again alerts at once -----------------
+# ---- 6. plugging in then dropping low again alerts once more ---------------
 run_watchdog "$(ac 12)"
 reset_log
 run_watchdog "$(batt 6)"
-ok "$([ "$(n_alerts)" = "1" ] && echo 1 || echo 0)" "charge then drop low again -> alerts immediately (AC clears the state)"
+ok "$([ "$(n_alerts)" = "1" ] && echo 1 || echo 0)" "charge then drop low again -> alerts once (AC resets the marker)"
+reset_log
+run_watchdog "$(batt 5)"
+ok "$([ "$(n_alerts)" = "0" ] && echo 1 || echo 0)" "and then stays silent again for that episode"
 
 # ---- 7. NON-dry wiring: the alert reaches the notifier, and the path resolves
 # The dry-run cases return BEFORE notify() runs, so they prove nothing about
