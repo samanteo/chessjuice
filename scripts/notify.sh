@@ -42,15 +42,38 @@ CURL="${CURL_BIN:-curl}"
 USE_FALLBACK=1
 
 # --- 1. dedicated alert bot --------------------------------------------------
+telegram_send() {
+  local token="$1" chat="$2" text="$3"
+  # Try the hostname first, then pin KNOWN-GOOD Telegram IPv4 literals.
+  #
+  # WHY: on this network a direct call to api.telegram.org simply times out — the
+  # gateway logs the same symptom and works around it by "re-walking IPv4
+  # literals before the hostname". `--resolve` does that for curl: it connects to
+  # the literal address while keeping SNI/Host correct, so TLS still validates.
+  local attempt
+  for attempt in "" "--resolve|api.telegram.org:443:149.154.166.110" "--resolve|api.telegram.org:443:149.154.167.220"; do
+    local -a extra=()
+    if [ -n "$attempt" ]; then
+      # Split the "flag|value" pair into two argv entries.
+      extra=("${attempt%%|*}" "${attempt#*|}")
+    fi
+    if "$CURL" -sS --max-time 15 \
+      "${extra[@]+"${extra[@]}"}" \
+      -X POST "https://api.telegram.org/bot${token}/sendMessage" \
+      -d "chat_id=${chat}" \
+      --data-urlencode "text=${text}" \
+      -o /dev/null 2>>"${NOTIFY_LOG:-/dev/null}"; then
+      return 0
+    fi
+  done
+  return 1
+}
+
 if [ -f "$ALERT_ENV" ]; then
   # shellcheck disable=SC1090
   . "$ALERT_ENV" 2>/dev/null || true
   if [ -n "${ALERT_BOT_TOKEN:-}" ] && [ -n "${ALERT_CHAT_ID:-}" ]; then
-    if "$CURL" -sS --max-time 20 -X POST \
-      "https://api.telegram.org/bot${ALERT_BOT_TOKEN}/sendMessage" \
-      -d "chat_id=${ALERT_CHAT_ID}" \
-      --data-urlencode "text=${MSG}" \
-      -o /dev/null; then
+    if telegram_send "$ALERT_BOT_TOKEN" "$ALERT_CHAT_ID" "$MSG"; then
       USE_FALLBACK=0
     fi
   fi

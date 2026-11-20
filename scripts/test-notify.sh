@@ -16,12 +16,19 @@ pass=0
 fail=0
 ok() { if [ "$1" = "1" ]; then pass=$((pass + 1)); printf '  PASS %s\n' "$2"; else fail=$((fail + 1)); printf '  FAIL %s\n' "$2"; fi; }
 
-# Fake curl: record that it was called (and whether it "succeeds").
+# Fake curl: record that it was called. Can be told to fail selectively, so the
+# hostname-then-literal retry path is testable.
 cat >"$STUBBIN/curl" <<'EOF'
 #!/bin/bash
 printf 'curl %s\n' "$*" >>"$CALLS_FILE"
-[ "${FAKE_CURL_FAIL:-0}" = "1" ] && exit 7
-exit 0
+case "$*" in
+  # The pinned-IPv4 retry: fails only if explicitly told to.
+  *--resolve*) [ "${FAKE_CURL_FAIL_RESOLVE:-0}" = "1" ] && exit 7; exit 0 ;;
+  # The plain hostname attempt.
+  *) [ "${FAKE_CURL_FAIL_HOSTNAME:-0}" = "1" ] && exit 7
+     [ "${FAKE_CURL_FAIL:-0}" = "1" ] && exit 7
+     exit 0 ;;
+esac
 EOF
 
 # Fake hermes: record the arguments.
@@ -70,14 +77,28 @@ ok "$(grep -q '111:FAKE' "$CALLS" && echo 1 || echo 0)" "uses the configured tok
 ok "$(grep -q 'chat_id=42' "$CALLS" && echo 1 || echo 0)" "uses the configured chat id"
 ok "$(grep -qv 'parse_mode' "$CALLS" && echo 1 || echo 0)" "sends plain text (no parse_mode to break on _ or *)"
 
-# ---- 3. alert bot FAILS: falls through rather than losing the alert ---------
+# ---- 3. alert bot FAILS EVERYWHERE: falls through rather than losing the alert
+# Both the hostname attempt and the pinned-IPv4 retries must fail, otherwise the
+# retry legitimately rescues it (which case 4 covers).
 reset
-export FAKE_CURL_FAIL=1
+export FAKE_CURL_FAIL=1 FAKE_CURL_FAIL_HOSTNAME=1 FAKE_CURL_FAIL_RESOLVE=1
 run_notify "must not be lost"
-unset FAKE_CURL_FAIL
+unset FAKE_CURL_FAIL FAKE_CURL_FAIL_HOSTNAME FAKE_CURL_FAIL_RESOLVE
 ok "$([ "$(n_hermes)" = "1" ] && echo 1 || echo 0)" "alert bot failing -> falls back to the main bot (alert not lost)"
 
-# ---- 4. empty message: no calls at all --------------------------------------
+# ---- 4. hostname times out but the pinned IPv4 works ------------------------
+# This mirrors the REAL failure on this network: api.telegram.org times out, and
+# the gateway works around it by re-walking IPv4 literals. Without the retry the
+# dedicated bot would silently never be used and everything would land in the
+# main chat — exactly the problem the split exists to solve.
+reset
+export FAKE_CURL_FAIL_HOSTNAME=1
+run_notify "delivered via literal"
+unset FAKE_CURL_FAIL_HOSTNAME
+ok "$([ "$(n_hermes)" = "0" ] && echo 1 || echo 0)" "hostname times out -> retried via pinned IPv4, NOT dropped to the fallback"
+ok "$(grep -q -- '--resolve api.telegram.org:443:149.154.' "$CALLS" && echo 1 || echo 0)" "the retry pins a known-good Telegram IPv4"
+
+# ---- 5. empty message: no calls at all --------------------------------------
 reset
 run_notify ""
 ok "$([ "$(calls)" = "0" ] && echo 1 || echo 0)" "empty message -> sends nothing"
