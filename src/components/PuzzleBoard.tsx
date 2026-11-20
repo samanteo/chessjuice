@@ -312,7 +312,11 @@ export function PuzzleBoard({
       setStatus(correct ? "correct" : "wrong");
       if (correct) {
         playSound("correct");
-        setFeedback("Correct! 🎉 — or mark it Hard if it was a lucky guess.");
+        // ONE short line, matching the red "Puzzle failed" banner. The banner sits
+        // above the board and the board is height-limited on a phone, so every
+        // extra wrapped line costs board pixels. The "lucky guess" hint already
+        // lives on the Hard button's tooltip, so it is not lost by shortening.
+        setFeedback("Correct! 🎉");
       } else if (timedOut) {
         // Both losing outcomes read the SAME short label on purpose — the full
         // line is played onto the board below, so the old "the best move was X"

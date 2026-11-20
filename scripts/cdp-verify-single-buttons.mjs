@@ -83,14 +83,17 @@ ok(solved.nextInNav === true, `Next sits in the move-nav row (${solved.nextInNav
 ok(solved.next && solved.next.w >= 80, `Next is a comfortable tap target (${solved.next?.w}px wide)`);
 ok(solved.next && solved.next.h >= 30, `Next is a large tap target (${solved.next?.h}px tall)`);
 
-// The "mark it Hard if it was a lucky guess" hint only rides the CORRECT-solve
-// feedback ("Correct! 🎉 — or mark it Hard…"). We got here by revealing the
-// solution, so asserting it on screen would be checking the wrong path — an
-// earlier version of this test did exactly that and reported a false FAIL.
-// Check the component source itself (fetch('/') would only return the HTML shell).
+// The correct-solve banner is now ONE short line ("Correct! 🎉"), matching the
+// red "Puzzle failed" banner — the banner sits above a height-limited board, so a
+// wrapped second line costs board pixels. The "lucky guess" hint moved to the
+// Hard button's tooltip. Assert BOTH: the banner is short, and the hint survived
+// somewhere. We got here by revealing the solution, so check the source rather
+// than the screen (fetch('/') would only return the HTML shell).
 const boardSrc = readFileSync(new URL("../src/components/PuzzleBoard.tsx", import.meta.url), "utf8");
-ok(/setFeedback\("Correct! 🎉 — or mark it Hard/.test(boardSrc),
-   "correct-solve feedback still carries the 'mark it Hard' hint (source)");
+ok(/setFeedback\("Correct! 🎉"\)/.test(boardSrc),
+   "correct-solve feedback is one short line (source)");
+ok(/lucky guess/i.test(boardSrc),
+   "the 'lucky guess' hint still exists on the Hard button's tooltip (source)");
 
 const errs = events.filter(e => e.method === "Runtime.exceptionThrown");
 ok(errs.length === 0, `no uncaught exceptions (${errs.length})`);
