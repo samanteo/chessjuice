@@ -29,22 +29,15 @@ cd "$REPO" || { echo "puzzle-trainer backup FAILED: cannot cd to $REPO"; exit 1;
 
 log() { echo "$(date -Iseconds) $*" >>"$LOG"; }
 
-# Shared notifier — the single place that knows the alert channel. Falls back to
-# the main bot when no dedicated alert bot is configured.
-NOTIFY="$(cd "$(dirname "$0")" && pwd)/notify.sh"
-
-# A failure here is exactly the case the user needs to hear about, and printing it
-# alone reached nobody: this job's `deliver: origin` is a CLI session with no
-# channel attached. So report it BOTH ways — the log for diagnosis, the notifier
-# so it actually lands somewhere they read.
+# On failure: log it, print the REASON on stdout, exit non-zero.
+#
+# The cron WRAPPER owns notification — it turns this stdout into a Telegram alert
+# via notify.sh. Do NOT notify from here as well: that double-sends, and the
+# second copy would arrive via the cron's failure_deliver, i.e. from the MAIN bot
+# in the main chat rather than the alert bot. One failure, one message, one place.
 fail() {
   log "FAILED: $1"
-  printf 'puzzle-trainer backup FAILED: %s\n' "$1"
-  "$NOTIFY" "❌ puzzle-trainer BACKUP FAILED
-
-$1
-
-Your puzzles are still safe in the browser and on the Mac — this is about the offsite copy." || true
+  printf '%s\n' "$1"
   exit 1
 }
 

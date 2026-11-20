@@ -74,9 +74,10 @@ if [ ${#problems[@]} -eq 0 ]; then
   exit 0   # healthy -> silent
 fi
 
-# Build the message ONCE, then print it AND push it to the alert channel.
-# Printing alone reached nobody: this job's `deliver: origin` is a CLI session
-# with no channel attached, so a stale backup produced no notification at all.
+# Build the message ONCE, print it, and exit non-zero. The cron WRAPPER delivers
+# it — printing alone reached nobody (the job's `deliver` has no channel in a CLI
+# session), and notifying from here as well would double-send via failure_deliver,
+# i.e. from the MAIN bot instead of the alert bot.
 msg="⚠️ puzzle-trainer BACKUP PROBLEM"
 for p in "${problems[@]}"; do
   msg="${msg}
@@ -87,5 +88,4 @@ msg="${msg}
 Your puzzles are still safe in the browser and on the Mac; this is about the offsite copy."
 
 printf '%s\n' "$msg"
-"${NOTIFY_BIN:-$(cd "$(dirname "$0")" && pwd)/notify.sh}" "$msg"
 exit 1
