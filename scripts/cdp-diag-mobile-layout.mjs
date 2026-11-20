@@ -81,6 +81,18 @@ function report(label, started, m) {
 }
 
 // ---- session ----
+// --- HARNESS ISOLATION GUARD: opt out of sync BEFORE the app boots -----------
+// `Page.addScriptToEvaluateOnNewDocument` runs in the new document BEFORE any
+// page script, so `puzzle_trainer_sync==='off'` is in place before
+// installStateSync() runs. The app then neither PULLS from nor PUSHES to the
+// user's real /api/state store. Setting the flag AFTER the first load is too
+// late — the app has already booted and may already have pushed (that is how a
+// fake quickStartCount/rating leaked into the user's real state).
+// ONE mechanism, identical in every harness in this directory.
+await send("Page.enable");
+await send("Page.addScriptToEvaluateOnNewDocument", {
+  source: "try{localStorage.setItem('puzzle_trainer_sync','off')}catch(e){}",
+});
 await send("Page.navigate", { url: "http://localhost:3000/?m=" + Date.now() });
 await sleep(12000);
 await ev(`localStorage.clear(); localStorage.setItem('puzzle_trainer_sync','off');
@@ -88,7 +100,9 @@ await ev(`localStorage.clear(); localStorage.setItem('puzzle_trainer_sync','off'
 await send("Page.navigate", { url: "http://localhost:3000/?m2=" + Date.now() });
 await sleep(15000);
 
-const startedT = await click(/Quick start/i);
+// Select by testid, not label text: the button now reads "Start new" / "Continue
+// N / M" depending on state, so text matching is unreliable.
+const startedT = await ev(`(() => { const b=document.querySelector('[data-testid="quickstart-button"]'); if(!b) return false; b.click(); return true; })()`);
 await sleep(9000);
 const m1 = report("TRAINING", startedT, await measure("training"));
 

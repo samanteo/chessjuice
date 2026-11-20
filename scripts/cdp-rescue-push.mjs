@@ -10,6 +10,16 @@ import { WebSocket } from "ws";
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const PORT = 9247;
 
+// --- WRITE-BY-DESIGN RESCUE TOOL: explicit opt-in required --------------------
+// This script re-enables sync against the user's REAL profile and therefore
+// PUSHES that profile's data onto the shared /api/state store. It must never run
+// by accident (e.g. swept up in a batch). Refuse unless explicitly acknowledged.
+if (process.env.PUZZLE_TRAINER_ALLOW_RESCUE !== "1") {
+  console.error("Refusing to run: this script overwrites the shared /api/state store.");
+  console.error("Re-run with PUZZLE_TRAINER_ALLOW_RESCUE=1 if you really mean to rescue.");
+  process.exit(0);
+}
+
 const list = await (await fetch(`http://localhost:${PORT}/json/list`)).json();
 const t = list.find((x) => x.type === "page");
 const ws = new WebSocket(t.webSocketDebuggerUrl, { perMessageDeflate: false, maxPayload: 2 ** 29 });

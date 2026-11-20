@@ -18,6 +18,18 @@ const ev = async (e) => (await send("Runtime.evaluate", { expression: e, returnB
 await send("Runtime.enable"); await send("Page.enable"); await send("Network.enable");
 await send("Network.setCacheDisabled", { cacheDisabled: true });
 await send("Emulation.setDeviceMetricsOverride", { width: 390, height: 844, deviceScaleFactor: 3, mobile: true });
+// --- HARNESS ISOLATION GUARD: opt out of sync BEFORE the app boots -----------
+// `Page.addScriptToEvaluateOnNewDocument` runs in the new document BEFORE any
+// page script, so `puzzle_trainer_sync==='off'` is in place before
+// installStateSync() runs. The app then neither PULLS from nor PUSHES to the
+// user's real /api/state store. Setting the flag AFTER the first load is too
+// late — the app has already booted and may already have pushed (that is how a
+// fake quickStartCount/rating leaked into the user's real state).
+// ONE mechanism, identical in every harness in this directory.
+await send("Page.enable");
+await send("Page.addScriptToEvaluateOnNewDocument", {
+  source: "try{localStorage.setItem('puzzle_trainer_sync','off')}catch(e){}",
+});
 await send("Page.navigate", { url: "http://localhost:3000/?cb=" + Date.now() });
 await sleep(12000);
 await ev(`localStorage.clear()`);
@@ -78,14 +90,16 @@ if (shown) {
 
 // And a Quick start RUN still works on themes.
 events.length = 0;
-await ev(`(() => { const b=[...document.querySelectorAll('button')].find(x=>/Quick start/i.test(x.innerText)); b&&b.click(); })()`);
+await ev(`(() => { const b=document.querySelector('[data-testid="quickstart-button"]'); b&&b.click(); })()`);
 await sleep(9000);
 const runReqs = events.filter(e => e.method === "Network.requestWillBeSent").map(e => e.params.request.url);
 const runDisp = runReqs.filter(u => u.includes("/api/dispense"));
 console.log("run dispense:", runDisp.map(u => u.replace("http://localhost:3000","")).join(" | "));
 ok(runDisp.some(u => /theme=fork/i.test(u)), "Quick start begins with the first pinned THEME (fork)");
 const counter = await ev(`document.querySelector('[data-testid="quickrun-counter"]')?.innerText ?? null`);
-ok(counter === "1 / 10", `counter running (${counter})`);
+// The readout is now a single GLOBAL counter (themes x per-theme count), not the
+// old per-theme "1 / 10". Two themes pinned x default 10 = 20.
+ok(counter === "1 / 20", `counter is the global run (${counter})`);
 
 const errs = events.filter(e => e.method === "Runtime.exceptionThrown");
 ok(errs.length === 0, `no uncaught exceptions (${errs.length})`);

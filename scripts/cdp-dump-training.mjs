@@ -10,6 +10,14 @@ ws.on("message", (raw) => { const m = JSON.parse(raw.toString()); if (m.id && pe
 const send = (method, params = {}) => new Promise((res) => { const i = ++id; pending.set(i, res); ws.send(JSON.stringify({ id: i, method, params })); });
 const evalJs = async (e) => (await send("Runtime.evaluate", { expression: e, returnByValue: true, awaitPromise: true })).result?.result?.value;
 
+// --- HARNESS ISOLATION GUARD (best-effort) -----------------------------------
+// No navigation here, so we run against an ALREADY-LOADED page and cannot
+// pre-seed the flag before boot. Opt out of sync now so nothing is pushed to the
+// user's real /api/state store while we read.
+await send("Runtime.enable");
+await evalJs(`try{localStorage.setItem('puzzle_trainer_sync','off')}catch(e){}`);
+
+
 const t = await evalJs(`document.querySelector('main')?.innerText ?? document.body.innerText`);
 console.log("=== MAIN TEXT (first 2500 chars) ===");
 console.log(t.slice(0, 2500));

@@ -43,6 +43,18 @@ await fetch("http://localhost:3000/api/state?confirm=1", { method: "DELETE" }).c
 const A = await connect(9245);
 await A.send("Page.enable");
 await A.send("Emulation.setDeviceMetricsOverride", { width: 390, height: 844, deviceScaleFactor: 2, mobile: true });
+// --- HARNESS ISOLATION GUARD: opt out of sync BEFORE the app boots -----------
+// `Page.addScriptToEvaluateOnNewDocument` runs in the new document BEFORE any
+// page script, so `puzzle_trainer_sync==='off'` is in place before
+// installStateSync() runs. The app then neither PULLS from nor PUSHES to the
+// user's real /api/state store. Setting the flag AFTER the first load is too
+// late — the app has already booted and may already have pushed (that is how a
+// fake quickStartCount/rating leaked into the user's real state).
+// ONE mechanism, identical in every harness in this directory.
+await A.send("Page.enable");
+await A.send("Page.addScriptToEvaluateOnNewDocument", {
+  source: "try{localStorage.setItem('puzzle_trainer_sync','off')}catch(e){}",
+});
 await A.send("Page.navigate", { url: "http://localhost:3000/?cb=" + Date.now() });
 await sleep(13000);
 
@@ -100,6 +112,18 @@ ok(!keysAfter.includes("puzzle_trainer_sync"),
 const B = await connect(9246);
 await B.send("Page.enable");
 await B.send("Emulation.setDeviceMetricsOverride", { width: 390, height: 844, deviceScaleFactor: 2, mobile: true });
+// --- HARNESS ISOLATION GUARD: opt out of sync BEFORE the app boots -----------
+// `Page.addScriptToEvaluateOnNewDocument` runs in the new document BEFORE any
+// page script, so `puzzle_trainer_sync==='off'` is in place before
+// installStateSync() runs. The app then neither PULLS from nor PUSHES to the
+// user's real /api/state store. Setting the flag AFTER the first load is too
+// late — the app has already booted and may already have pushed (that is how a
+// fake quickStartCount/rating leaked into the user's real state).
+// ONE mechanism, identical in every harness in this directory.
+await B.send("Page.enable");
+await B.send("Page.addScriptToEvaluateOnNewDocument", {
+  source: "try{localStorage.setItem('puzzle_trainer_sync','off')}catch(e){}",
+});
 await B.send("Page.navigate", { url: "http://localhost:3000/?cb=" + Date.now() + "&device=B" });
 await sleep(13000);
 // Clear B's own copy WITHOUT wiping the shared server, then reload so it must pull.

@@ -15,7 +15,7 @@ interface ThemePickerProps {
   onClose: () => void;
   pinned: string[];
   themeCounts: Record<string, number>;
-  /** Toggle a single theme's (or opening's) pinned state. */
+  /** Add a pin for a theme/opening. The same id may be pinned repeatedly. */
   onToggle: (themeId: string) => void;
   /** Pin several at once. */
   onPinMany: (themeIds: string[]) => void;
@@ -88,6 +88,15 @@ export function ThemePicker({
   const [pinAllArmed, setPinAllArmed] = useState(false);
 
   const pinnedSet = useMemo(() => new Set(pinned), [pinned]);
+
+  // How many times each id is pinned. The same theme/opening may be pinned more
+  // than once (each pin is its own Quick start block), so the picker shows the
+  // multiplicity and keeps offering "pin again".
+  const pinnedCounts = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const id of pinned) m.set(id, (m.get(id) ?? 0) + 1);
+    return m;
+  }, [pinned]);
 
   // Flat list of all themes (with live counts) for search/filter.
   const themeItems = useMemo(() => {
@@ -180,13 +189,17 @@ export function ThemePicker({
   if (!open) return null;
 
   const renderRow = (t: PickerItem) => {
-    const isPinned = pinnedSet.has(t.id);
+    // Count, not a boolean: an id can be pinned multiple times, and tapping a
+    // row ADDS another pin rather than refusing or removing.
+    const count = pinnedCounts.get(t.id) ?? 0;
+    const isPinned = count > 0;
     return (
       <button
         key={`${t.kind}-${t.id}`}
         onClick={() => onToggle(t.id)}
         data-testid={t.kind === "opening" ? `picker-opening-${t.id}` : `picker-row-${t.id}`}
         data-pinned={isPinned ? "true" : "false"}
+        data-pin-count={count}
         data-kind={t.kind}
         className={`w-full p-3 rounded-lg text-left transition-colors border ${
           isPinned
@@ -203,7 +216,7 @@ export function ThemePicker({
                   : "border-gray-300 dark:border-gray-600 text-transparent"
               }`}
             >
-              ✓
+              {isPinned ? (count > 1 ? String(count) : "✓") : "✓"}
             </span>
             <span className="text-2xl flex-shrink-0">{t.icon}</span>
             <div className="min-w-0">
@@ -220,7 +233,7 @@ export function ThemePicker({
               {fmtCount(t.count)}
             </span>
             <span className="text-xs font-medium text-blue-600 dark:text-blue-400">
-              {isPinned ? "Pinned ✓" : "Pin"}
+              {isPinned ? (count > 1 ? `Pinned ×${count} · pin again` : "Pin again") : "Pin"}
             </span>
           </div>
         </div>

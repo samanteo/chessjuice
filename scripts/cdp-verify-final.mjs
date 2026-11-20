@@ -43,6 +43,18 @@ let pass = 0, fail = 0;
 const ok = (c, m) => { c ? (pass++, console.log("  PASS", m)) : (fail++, console.log("  FAIL", m)); };
 
 console.log("navigating (cache disabled)…");
+// --- HARNESS ISOLATION GUARD: opt out of sync BEFORE the app boots -----------
+// `Page.addScriptToEvaluateOnNewDocument` runs in the new document BEFORE any
+// page script, so `puzzle_trainer_sync==='off'` is in place before
+// installStateSync() runs. The app then neither PULLS from nor PUSHES to the
+// user's real /api/state store. Setting the flag AFTER the first load is too
+// late — the app has already booted and may already have pushed (that is how a
+// fake quickStartCount/rating leaked into the user's real state).
+// ONE mechanism, identical in every harness in this directory.
+await send("Page.enable");
+await send("Page.addScriptToEvaluateOnNewDocument", {
+  source: "try{localStorage.setItem('puzzle_trainer_sync','off')}catch(e){}",
+});
 await send("Page.navigate", { url: "http://localhost:3000/?cb=" + Date.now() });
 await sleep(16000);
 
@@ -92,7 +104,7 @@ ok(dueBtn.present, "2. red due button renders when puzzles are due");
 if (dueBtn.present) {
   await evalJs(`(() => { const b=[...document.querySelectorAll('button')].find(x=>/due for review/i.test(x.innerText)); b.scrollIntoView({block:'center'}); b.click(); })()`);
   await sleep(3500);
-  const nav = await evalJs(`!document.querySelector('[data-testid="theme-mastery"]') && !/Quick start/i.test(document.body.innerText)`);
+  const nav = await evalJs(`!document.querySelector('[data-testid="theme-mastery"]') && !document.querySelector('[data-testid="quickstart-button"]')`);
   ok(nav, "2. clicking it navigates to the Review tab");
 }
 

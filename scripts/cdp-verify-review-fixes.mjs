@@ -37,6 +37,18 @@ await send("Emulation.setDeviceMetricsOverride", { width: 390, height: 664, devi
 
 // Clean slate on both sides.
 await fetch("http://localhost:3000/api/state?confirm=1", { method: "DELETE" }).catch(() => {});
+// --- HARNESS ISOLATION GUARD: opt out of sync BEFORE the app boots -----------
+// `Page.addScriptToEvaluateOnNewDocument` runs in the new document BEFORE any
+// page script, so `puzzle_trainer_sync==='off'` is in place before
+// installStateSync() runs. The app then neither PULLS from nor PUSHES to the
+// user's real /api/state store. Setting the flag AFTER the first load is too
+// late — the app has already booted and may already have pushed (that is how a
+// fake quickStartCount/rating leaked into the user's real state).
+// ONE mechanism, identical in every harness in this directory.
+await send("Page.enable");
+await send("Page.addScriptToEvaluateOnNewDocument", {
+  source: "try{localStorage.setItem('puzzle_trainer_sync','off')}catch(e){}",
+});
 await send("Page.navigate", { url: "http://localhost:3000/?cb=" + Date.now() });
 await sleep(13000);
 await ev(`localStorage.clear()`);
@@ -46,7 +58,9 @@ await send("Page.navigate", { url: "http://localhost:3000/?cb=" + Date.now() });
 await sleep(15000);
 
 // ---- 1. Train a puzzle and FAIL it, so it becomes a due mistake ----
-const started = await clickBtn(`/Quick start/i`);
+// Select by testid, not label text: the button is now state-dependent
+// ("Start new" / "Continue N / M"), so text matching is unreliable.
+const started = await ev(`(() => { const b=document.querySelector('[data-testid="quickstart-button"]'); if(!b) return false; b.click(); return true; })()`);
 ok(started, "Quick start is available");
 await sleep(9000);
 const boardFirst = await ev(`!!document.querySelector('[data-board-context="training"]')`);

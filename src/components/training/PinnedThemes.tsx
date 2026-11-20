@@ -10,7 +10,11 @@ interface PinnedThemesProps {
   openingCounts?: Record<string, number>;
   /** Tap a pinned card → start that theme/opening immediately. */
   onPlay: (themeId: string) => void;
-  onUnpin: (themeId: string) => void;
+  /**
+   * Remove the pin at this INDEX. Index-based because the same theme/opening id
+   * may be pinned several times — removing a block must remove only that block.
+   */
+  onUnpin: (index: number) => void;
   onOpenPicker: () => void;
   onGoToAllThemes: () => void;
   /** Persist a new order. Quick start walks the pins in exactly this order. */
@@ -169,7 +173,7 @@ export function PinnedThemes({
             const isOver = dragIndex !== null && overIndex === i && dragIndex !== i;
             return (
               <div
-                key={id}
+                key={i}
                 className="relative"
                 data-index={i}
                 data-testid={`pinned-slot-${i}`}
@@ -230,7 +234,7 @@ export function PinnedThemes({
                   data-testid={`unpin-${id}`}
                   onClick={(e) => {
                     e.stopPropagation();
-                    onUnpin(id);
+                    onUnpin(i);
                   }}
                   title="Unpin"
                   aria-label={`Unpin ${label}`}

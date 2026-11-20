@@ -81,7 +81,8 @@ export interface UserSettings {
   // Optional per-puzzle countdown, in seconds. 0 = Off (default). When it
   // expires the puzzle is auto-failed exactly like a wrong answer.
   puzzleTimerSeconds: number;
-  // Puzzles per pinned theme when a Quick start run is launched (default 10).
+  // Puzzles per pinned theme when a Training Block run is launched. Default 10;
+  // validated/clamped to 1–100 on read and on save.
   quickStartCount?: number;
   // Sound effects on/off. Mirrors the sound module's own localStorage preference
   // so the Settings tab can toggle it.

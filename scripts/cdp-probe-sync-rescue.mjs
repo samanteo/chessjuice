@@ -21,13 +21,13 @@ if (clock) console.log("  entries:", Object.keys(JSON.parse(clock)).slice(0, 14)
 const probe = await ev(`fetch('/api/state', {cache:'no-store'}).then(r => r.text().then(t => r.status + ' :: ' + t.slice(0,100)))`);
 console.log("GET /api/state ->", probe);
 
-const put = await ev(`(async () => {
-  try {
-    const r = await fetch('/api/state', { method:'PUT', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ 'puzzle_trainer_sync_probe': { v: 'hello', t: Date.now() } }) });
-    return 'PUT ' + r.status + ' :: ' + (await r.text()).slice(0,140);
-  } catch (e) { return 'PUT threw: ' + e.message; }
-})()`);
-console.log("manual PUT ->", put);
+// --- HARNESS ISOLATION GUARD: no writes to the real store from this probe ------
+// This diagnostic previously did a manual `PUT /api/state` of a
+// `puzzle_trainer_sync_probe` key. That write is NOT gated by the sync opt-out
+// (it bypasses stateSync entirely), and one such probe ('puzzle_trainer_sync_probe'
+// = 'hello') leaked into the user's REAL state. The PUT is removed: a diagnostic
+// must never mutate the shared store. Everything below is read-only.
+console.log("manual PUT ->  (disabled: this probe no longer writes to /api/state)");
 
 ws.close();
+

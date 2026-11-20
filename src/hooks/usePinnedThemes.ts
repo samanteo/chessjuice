@@ -48,10 +48,20 @@ export function usePinnedThemes() {
     }
   }, [pinned, loaded]);
 
+  /**
+   * Pin a theme/opening. The SAME id may be pinned MORE THAN ONCE — each pin is
+   * its own ordered block in the Quick start grid — so this ALWAYS appends a new
+   * copy. Duplicates are legal: the store is a plain JSON string array.
+   */
   const pin = useCallback((themeId: string) => {
-    setPinned((prev) => (prev.includes(themeId) ? prev : [...prev, themeId]));
+    setPinned((prev) => [...prev, themeId]);
   }, []);
 
+  /**
+   * Pin several at once. Ids already present are skipped so one bulk "Pin all
+   * shown" tap can never fan a single theme out into dozens of duplicates; add a
+   * deliberate repeat with `pin`/`toggle` instead.
+   */
   const pinMany = useCallback((themeIds: string[]) => {
     setPinned((prev) => {
       const next = [...prev];
@@ -60,18 +70,27 @@ export function usePinnedThemes() {
     });
   }, []);
 
-  const unpin = useCallback((themeId: string) => {
-    setPinned((prev) => prev.filter((id) => id !== themeId));
+  /**
+   * Remove ONE pin by its position. Index-based (not id-based) because the same
+   * id can occupy several slots — removing a block must remove exactly that
+   * block, never every copy.
+   */
+  const unpin = useCallback((index: number) => {
+    setPinned((prev) => prev.filter((_, i) => i !== index));
   }, []);
 
+  /**
+   * Toggle ADDS another pin for a theme/opening (the same id may be pinned
+   * repeatedly). Removal is positional: use `unpin(index)` or the grid's × button.
+   */
   const toggle = useCallback((themeId: string) => {
-    setPinned((prev) =>
-      prev.includes(themeId) ? prev.filter((id) => id !== themeId) : [...prev, themeId]
-    );
+    setPinned((prev) => [...prev, themeId]);
   }, []);
 
+  /** True when the id is pinned at least once (any number of copies). */
   const isPinned = useCallback((themeId: string) => pinned.includes(themeId), [pinned]);
 
+  /** Persist a new order verbatim — duplicates and all. */
   const reorder = useCallback((themeIds: string[]) => {
     setPinned(themeIds.filter((x): x is string => typeof x === "string"));
   }, []);

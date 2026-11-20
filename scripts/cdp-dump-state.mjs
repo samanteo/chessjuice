@@ -9,6 +9,15 @@ ws.on("message", (raw) => { const m = JSON.parse(raw.toString()); if (m.id && pe
 const send = (m, params = {}) => new Promise((res) => { const i = ++id; pending.set(i, res); ws.send(JSON.stringify({ id: i, method: m, params })); });
 const ev = async (e) => (await send("Runtime.evaluate", { expression: e, returnByValue: true })).result?.result?.value;
 
+// --- HARNESS ISOLATION GUARD (best-effort) -----------------------------------
+// This script does not navigate, so it can only run against an ALREADY-LOADED
+// page and cannot pre-seed the flag before boot. It flips the sync opt-out now so
+// no pending write from that page is pushed to the user's real /api/state store
+// while we read it.
+await send("Runtime.enable");
+await ev(`try{localStorage.setItem('puzzle_trainer_sync','off')}catch(e){}`);
+
+
 console.log("glicko raw      :", (await ev(`localStorage.getItem('puzzle_trainer_glicko_v1')`) ?? "null").slice(0, 300));
 console.log("progress raw    :", (await ev(`localStorage.getItem('puzzle_trainer_progress_v2')`) ?? "null").slice(0, 300));
 console.log("settings.rating :", await ev(`JSON.parse(localStorage.getItem('puzzle_trainer_settings')||'{}').rating`));

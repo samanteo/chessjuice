@@ -10,6 +10,14 @@ ws.on("message", (raw) => { const m = JSON.parse(raw.toString()); if (m.id && pe
 const send = (method, params = {}) => new Promise((res) => { const i = ++id; pend.set(i, res); ws.send(JSON.stringify({ id: i, method, params })); });
 const ev = async (e) => (await send("Runtime.evaluate", { expression: e, returnByValue: true, awaitPromise: true })).result?.result?.value;
 
+// --- HARNESS ISOLATION GUARD (best-effort) -----------------------------------
+// No navigation here, so we run against an ALREADY-LOADED page and cannot
+// pre-seed the flag before boot. Opt out of sync now so nothing is pushed to the
+// user's real /api/state store while we measure.
+await send("Runtime.enable");
+await ev(`try{localStorage.setItem('puzzle_trainer_sync','off')}catch(e){}`);
+
+
 // make sure we are on Analytics
 await ev(`(() => { const b=[...document.querySelectorAll('nav button')].find(x=>/Analytics/i.test(x.innerText)); b&&b.click(); })()`);
 await sleep(7000);
