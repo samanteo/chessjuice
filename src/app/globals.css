@@ -552,6 +552,49 @@ body {
   gap: 0.4rem;
   flex: 0 0 auto;
 }
+
+/* TAGS switch — the on/off pill in the head that shows or hides the theme chips.
+   Deliberately small: it sits at the right end of the ratings row (margin-left:
+   auto) so it never costs a row of its own. ON = green with the knob on the
+   right and the word "TAGS"; OFF = red with the knob on the left and "OFF". */
+.tag-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  margin-left: auto;
+  flex: 0 0 auto;
+  height: 22px;
+  padding: 0 0.45rem;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  font-size: 0.6rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  line-height: 1;
+  color: #fff;
+  cursor: pointer;
+  transition: background 0.18s ease, border-color 0.18s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+.tag-toggle[data-on="true"] {
+  background: #15803d;
+  border-color: #22c55e;
+}
+.tag-toggle[data-on="false"] {
+  background: #7f1d1d;
+  border-color: #ef4444;
+  /* Knob first, label after — mirrors the ON layout. */
+  flex-direction: row-reverse;
+}
+.tag-toggle__knob {
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.45);
+}
+.tag-toggle__label { line-height: 1; }
+.tag-toggle:focus-visible { outline: 2px solid var(--accent, #60a5fa); outline-offset: 2px; }
 /* Theme chips live in their own inline row so they can wrap as a group once the
    solution is shown (all themes, not just the first three) without pushing the
    rating pills around. */

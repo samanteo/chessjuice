@@ -60,6 +60,9 @@ await sleep(13000);
 await ev(`localStorage.clear()`);
 await ev(`localStorage.setItem('puzzle_trainer_sync','off')`);
 await ev(`localStorage.setItem('puzzle_trainer_pinned_themes', JSON.stringify(['fork']))`);
+// Theme chips are OFF by default now (the TAGS switch), and this test asserts
+// they all appear on reveal — so switch them on for the run.
+await ev(`localStorage.setItem('puzzle_trainer_settings', JSON.stringify({ showTags: true, quickStartCount: 6 }))`);
 await send("Page.navigate", { url: "http://localhost:3000/?cb=" + Date.now() });
 await sleep(15000);
 await ev(`document.querySelector('[data-testid="quickstart-button"]').click()`);

@@ -83,6 +83,14 @@ interface PuzzleBoardProps {
   sessionActiveIndex?: number | null;
   sessionThemeLabel?: string | null;
   onReplayAt?: (index: number) => void;
+  /**
+   * Whether the puzzle's theme tags are shown in the head. The TAGS switch in the
+   * head toggles it; the value lives in user settings so the choice survives a
+   * reload and syncs between phone and laptop. Default OFF — the tags name the
+   * motif, which is a hint, so they are opt-in.
+   */
+  showTags?: boolean;
+  onToggleTags?: () => void;
 }
 
 interface Snapshot {
@@ -104,6 +112,8 @@ export function PuzzleBoard({
   sessionActiveIndex,
   sessionThemeLabel,
   onReplayAt,
+  showTags = false,
+  onToggleTags,
 }: PuzzleBoardProps) {
   const theme = useTheme();
   const isWide = useIsWideScreen();
@@ -743,20 +753,40 @@ export function PuzzleBoard({
                 </span>
               )}
             </span>
-            {/* Themes — ALL of them, while solving and after. This is the group
-                that wraps: it takes the full width under the ratings and flows
-                left-to-right, so nothing is hidden behind a sideways scroll. */}
-            <span
-              className="board-panel__themes"
-              data-testid="puzzle-themes"
-              data-count={puzzle.themes.length}
+            {/* TAGS switch. Sits at the right end of the ratings row (margin-left:
+                auto pushes it there), so it never costs a row of its own. ON is
+                green and reads "TAGS"; OFF is red and reads "OFF". The choice is
+                persisted in settings — see onToggleTags. */}
+            <button
+              type="button"
+              className="tag-toggle"
+              data-testid="tags-toggle"
+              data-on={showTags ? "true" : "false"}
+              aria-pressed={showTags}
+              aria-label={showTags ? "Hide puzzle tags" : "Show puzzle tags"}
+              title={showTags ? "Hide puzzle tags" : "Show puzzle tags"}
+              onClick={onToggleTags}
             >
-              {puzzle.themes.map((t) => (
-                <span key={t} className="pill pill-neutral theme-chip">
-                  {t}
-                </span>
-              ))}
-            </span>
+              <span className="tag-toggle__knob" aria-hidden="true" />
+              <span className="tag-toggle__label">{showTags ? "TAGS" : "OFF"}</span>
+            </button>
+            {/* Themes — ALL of them, while solving and after, but only when the
+                TAGS switch is on. This is the group that wraps: it takes the full
+                width under the ratings and flows left-to-right, so nothing is
+                hidden behind a sideways scroll. */}
+            {showTags && (
+              <span
+                className="board-panel__themes"
+                data-testid="puzzle-themes"
+                data-count={puzzle.themes.length}
+              >
+                {puzzle.themes.map((t) => (
+                  <span key={t} className="pill pill-neutral theme-chip">
+                    {t}
+                  </span>
+                ))}
+              </span>
+            )}
           </div>
         </div>
         <div className="board-panel__side hidden sm:block">

@@ -4,7 +4,9 @@ import { useState, useCallback, useMemo } from "react";
 import { UserPuzzle, QueueType, QueueCounts, LichessTheme } from "@/types";
 import { ThemeFilterCompact } from "./ThemeFilter";
 import { getQueueType, getIntervalDescription, SM2State, MAX_RUNG } from "@/lib/sm2";
-import { resolveAngle, angleLabel } from "@/lib/historySessions";
+import { resolveAngle } from "@/lib/historySessions";
+import { puzzleThemeGroup } from "@/lib/themeGroups";
+import { themeLabel } from "@/components/dashboard/dashboardStats";
 
 interface QueueViewsProps {
   puzzles: UserPuzzle[];
@@ -22,6 +24,14 @@ interface QueueViewsProps {
   onWrongPuzzlesToggle: (show: boolean) => void;
   userRating: number;
   newPuzzlesPerDay: number;
+  /**
+   * "Group by theme" is CONTROLLED from the page, not local state. Selecting a
+   * puzzle unmounts this component (the board replaces the queue), so a local
+   * useState reset the toggle on every single puzzle — the setting silently
+   * dropped the moment you started reviewing. The page owns it and persists it.
+   */
+  groupByTheme: boolean;
+  onGroupByThemeChange: (next: boolean) => void;
 }
 
 const QUEUE_CONFIG: Record<QueueType, { label: string; icon: string; description: string }> = {
@@ -210,19 +220,12 @@ export function QueueViews({
   onWrongPuzzlesToggle,
   userRating,
   newPuzzlesPerDay,
+  groupByTheme,
+  onGroupByThemeChange,
 }: QueueViewsProps) {
   const [sortBy, setSortBy] = useState<"dueDate" | "rating" | "rung" | "createdAt">("dueDate");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
   const [filterRating, setFilterRating] = useState<{min: number, max: number} | null>(null);
-  /**
-   * Group the queue by ANGLE (opening / theme / mix) — Lichess's session idea
-   * applied to the review queue.
-   *
-   * Off by default: a review queue is action-ordered (most overdue first), and
-   * grouping by theme would fight that. On, the same items are batched by angle so
-   * you can work one motif at a time. Order WITHIN a group is unchanged.
-   */
-  const [groupByAngle, setGroupByAngle] = useState(false);
 
   // Filter puzzles for active queue
   const queuePuzzles = useMemo(() => {
@@ -286,28 +289,35 @@ export function QueueViews({
   }, [puzzles, activeQueue, selectedThemes, filterRating, sortBy, sortDir, newPuzzlesPerDay]);
 
   /**
-   * The queue batched by angle, for the "group by theme" view.
+   * The queue batched by THEME, for the "group by theme" view.
    *
-   * Groups keep the order they already had (due-date first by default) and are
-   * themselves ordered by size, biggest first — so the motif you have most to work
-   * through sits at the top.
+   * It used to group by ANGLE (opening). That is Lichess's opening-session key
+   * and it is wrong for puzzles: ~83% of them carry no opening tag, so the whole
+   * queue collapsed into one group labelled "Mixed" — a "Group by theme" button
+   * producing a single bucket. Now the key is the puzzle's first real MOTIF tag
+   * (see lib/themeGroups).
+   *
+   * Groups keep the order they already have (due first by default) and are
+   * themselves ordered by size, biggest first — the motif you have most to work
+   * through.
    */
-  const angleGroups = useMemo(() => {
-    if (!groupByAngle) return null;
+  const themeGroups = useMemo(() => {
+    if (!groupByTheme) return null;
     const groups = new Map<string, UserPuzzle[]>();
     for (const p of queuePuzzles) {
-      const key = resolveAngle({
-        openings: (p as UserPuzzle).openings,
-        themes: p.themes,
-      });
+      const key = puzzleThemeGroup(p);
       const list = groups.get(key);
       if (list) list.push(p);
       else groups.set(key, [p]);
     }
     return Array.from(groups.entries())
-      .map(([angle, items]) => ({ angle, items }))
-      .sort((a, b) => b.items.length - a.items.length || angleLabel(a.angle).localeCompare(angleLabel(b.angle)));
-  }, [queuePuzzles, groupByAngle]);
+      .map(([theme, items]) => ({ theme, items }))
+      .sort(
+        (a, b) =>
+          b.items.length - a.items.length ||
+          themeLabel(a.theme).localeCompare(themeLabel(b.theme))
+      );
+  }, [queuePuzzles, groupByTheme]);
 
   function getPuzzleWeight(puzzleRating: number, userRating: number): number {
     // Weight based on rating difference - Lichess style
@@ -326,6 +336,14 @@ export function QueueViews({
 
   // Get next puzzle using Lichess-style rating-based selection
   const getNextPuzzle = useCallback((): UserPuzzle | null => {
+    // Grouped view: "next" means the top of the grouped list, i.e. the first
+    // item of the biggest motif group — exactly what the user is looking at.
+    // It used to take the flat list's first item, which could belong to a
+    // different theme than the group shown at the top.
+    if (groupByTheme && themeGroups && themeGroups.length > 0) {
+      return themeGroups[0].items[0] ?? null;
+    }
+
     let candidates = queuePuzzles;
     
     if (candidates.length === 0) return null;
@@ -346,7 +364,7 @@ export function QueueViews({
     
     // For other queues, sort by due date (SM-2) and take first
     return candidates[0];
-  }, [queuePuzzles, activeQueue, userRating]);
+  }, [queuePuzzles, activeQueue, userRating, groupByTheme, themeGroups]);
 
   const handleGetNextPuzzle = useCallback(() => {
     const next = getNextPuzzle();
@@ -418,15 +436,16 @@ export function QueueViews({
 
         <div className="flex-1"></div>
 
-        {/* Group the queue by angle (opening/theme) — Lichess's session idea. */}
+        {/* Group the queue by motif theme, and keep that grouping for the whole
+            review session (the page owns + persists this flag). */}
         <button
           data-testid="queue-group-toggle"
-          data-on={groupByAngle ? "1" : "0"}
-          onClick={() => setGroupByAngle((v) => !v)}
-          title="Group the queue by opening / theme"
+          data-on={groupByTheme ? "1" : "0"}
+          onClick={() => onGroupByThemeChange(!groupByTheme)}
+          title="Group the queue by theme — next puzzle stays in the same theme"
           className={
             "px-3 py-1.5 rounded-lg text-sm border transition-colors " +
-            (groupByAngle
+            (groupByTheme
               ? "bg-[#d59020] text-[#1b1a17] border-transparent font-medium"
               : "bg-white text-gray-700 border-gray-300 hover:bg-gray-50")
           }
@@ -519,14 +538,14 @@ export function QueueViews({
               </p>
             )}
           </div>
-        ) : groupByAngle && angleGroups ? (
-          /* Grouped by angle — Lichess's session idea applied to the review queue. */
+        ) : groupByTheme && themeGroups ? (
+          /* Grouped by motif theme. */
           <div data-testid="queue-grouped">
-            {angleGroups.map((g) => (
-              <div key={g.angle} data-testid={`queue-group-${g.angle}`}>
+            {themeGroups.map((g) => (
+              <div key={g.theme} data-testid={`queue-group-${g.theme}`}>
                 <div className="sticky top-0 z-10 flex items-center gap-2 px-3 py-1.5 bg-gray-50 border-y border-gray-100">
                   <span className="text-xs font-semibold text-gray-800 truncate max-w-[10rem]">
-                    {angleLabel(g.angle)}
+                    {themeLabel(g.theme)}
                   </span>
                   <span className="text-[10px] px-1.5 py-0.5 rounded bg-gray-200 text-gray-600 tabular-nums">
                     {g.items.length}

@@ -87,6 +87,10 @@ export interface UserSettings {
   // Sound effects on/off. Mirrors the sound module's own localStorage preference
   // so the Settings tab can toggle it.
   soundEnabled?: boolean;
+  // Show the puzzle's theme tags in the board head while solving. The TAGS
+  // switch in the head writes this. Default OFF: tags name the motif, so showing
+  // them before you solve is a hint. Absent on older saved state, hence optional.
+  showTags?: boolean;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -103,6 +107,7 @@ export const DEFAULT_SETTINGS: Omit<UserSettings, 'userId' | 'createdAt' | 'upda
   totalSolved: 0,
   totalFailed: 0,
   puzzleTimerSeconds: 0,
+  showTags: false,
 };
 
 // Puzzle attempt result. 'hard' = the user pressed HARD on a solved puzzle

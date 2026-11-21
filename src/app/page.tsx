@@ -34,6 +34,7 @@ import {
 import { UserPuzzle, QueueType, LichessTheme, PuzzleAttempt } from "@/types";
 import { getQueueType, SM2State } from "@/lib/sm2";
 import { selectPuzzle } from "@/lib/dispensing";
+import { puzzleThemeGroup, GROUP_BY_THEME_KEY } from "@/lib/themeGroups";
 import { dispenseFromDb } from "@/lib/dispenseClient";
 import {
   playSound,
@@ -115,6 +116,30 @@ function PuzzleDashboardPageInner() {
   const [boardContext, setBoardContext] = useState<"training" | "review" | "allthemes">("review");
   const [selectedThemes, setSelectedThemes] = useState<LichessTheme[]>([]);
   const [showWrongPuzzles, setShowWrongPuzzles] = useState(false);
+  /**
+   * "Group by theme" lives HERE, not in QueueViews, for two reasons:
+   *  1. Selecting a puzzle unmounts QueueViews (the board replaces the queue),
+   *     so a local useState forgot the setting on every single puzzle.
+   *  2. The board's "Next puzzle" needs it: grouped review must keep serving the
+   *     SAME motif until that group is exhausted. Only the page sees both.
+   * Persisted so it survives a reload / device switch.
+   */
+  const [groupByTheme, setGroupByTheme] = useState(false);
+  useEffect(() => {
+    try {
+      setGroupByTheme(localStorage.getItem(GROUP_BY_THEME_KEY) === "1");
+    } catch {
+      /* private mode / storage blocked — default off */
+    }
+  }, []);
+  const toggleGroupByTheme = useCallback((next: boolean) => {
+    setGroupByTheme(next);
+    try {
+      localStorage.setItem(GROUP_BY_THEME_KEY, next ? "1" : "0");
+    } catch {
+      /* ignore */
+    }
+  }, []);
   const [showSettings, setShowSettings] = useState(false);
 
   // All-themes browser state (shared with the parent so the board's "next"
@@ -282,6 +307,12 @@ function PuzzleDashboardPageInner() {
       themes: LichessTheme[],
       difficultyId: string,
       context: "training" | "review" | "allthemes",
+      /**
+       * REVIEW ONLY. When "Group by theme" is on, keep serving the same motif
+       * until that group runs out, so a review session works one pattern at a
+       * time instead of jumping between themes on every puzzle.
+       */
+      groupKey?: string | null,
     ) => {
       // ---- 1. Server-side 6.19M catalogue (TRAINING only) --------------------
       // Review is deliberately excluded: it must serve the user's own DUE
@@ -341,6 +372,16 @@ function PuzzleDashboardPageInner() {
         // (see the guard below) instead of re-serving the same puzzle forever —
         // the "due count stuck at 1, Next puzzle does nothing" bug.
         pool = pool.filter((p) => !recentlyServed.current.has(p.id));
+
+        // Grouped review: stay inside the current motif group. Only when that
+        // group is exhausted do we fall back to the whole due pool — a review
+        // run must always be able to finish, so this is a PREFERENCE, not a
+        // hard filter. (Hard filtering is how the "Next puzzle does nothing"
+        // bug happened: an empty pool silently ended the run.)
+        if (groupKey) {
+          const sameGroup = pool.filter((p) => puzzleThemeGroup(p) === groupKey);
+          if (sameGroup.length > 0) pool = sameGroup;
+        }
       }
 
       if (themes.length > 0) {
@@ -721,9 +762,26 @@ function PuzzleDashboardPageInner() {
         }
         // The run just finished — fall through and serve a plain puzzle.
       }
-      dispenseThemed(context === "review" ? [] : selectedThemes, difficulty, context);
+      // REVIEW + "Group by theme": keep the session inside the motif group the
+      // current puzzle belongs to. This is what makes the toggle mean something
+      // when you actually PLAY — it used to only regroup the list, and the very
+      // next puzzle could be a different theme.
+      const reviewGroup =
+        context === "review" && groupByTheme && selectedPuzzle
+          ? puzzleThemeGroup(selectedPuzzle)
+          : null;
+      dispenseThemed(context === "review" ? [] : selectedThemes, difficulty, context, reviewGroup);
     },
-    [dispenseThemed, selectedThemes, difficulty, serveReplay, quickRun, advanceQuickRun]
+    [
+      dispenseThemed,
+      selectedThemes,
+      difficulty,
+      serveReplay,
+      quickRun,
+      advanceQuickRun,
+      groupByTheme,
+      selectedPuzzle,
+    ]
   );
 
   // Shared board render helper — used by the Training, All themes and Mistakes tabs.
@@ -755,6 +813,10 @@ function PuzzleDashboardPageInner() {
             boardTheme={theme.boardTheme}
             coordinates={theme.coordinates}
             angleLabel={boardAngleLabel}
+            // TAGS switch in the head. Persisted in settings so the choice
+            // survives a reload and syncs phone <-> laptop. Default OFF.
+            showTags={settings?.showTags ?? false}
+            onToggleTags={() => updateSettings({ showTags: !(settings?.showTags ?? false) })}
             onComplete={(attempt) => {
               // Replay = pure practice: no SM-2, no rating, no history entry.
               if (!practiceRef.current) handlePuzzleComplete(attempt);
@@ -1062,6 +1124,8 @@ function PuzzleDashboardPageInner() {
             onWrongPuzzlesToggle={setShowWrongPuzzles}
             userRating={settings?.rating || 1000}
             newPuzzlesPerDay={settings?.newPuzzlesPerDay || 5}
+            groupByTheme={groupByTheme}
+            onGroupByThemeChange={toggleGroupByTheme}
           />
         </aside>
 
