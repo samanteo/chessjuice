@@ -135,8 +135,24 @@ const g2 = await geo();
 const first = moves[1];
 const a = xy(g2, first.slice(0,2)), b = xy(g2, first.slice(2,4));
 await click(a.x, a.y); await sleep(120); await click(b.x, b.y);
-await sleep(1400);
-const afterFirst = await snap();
+// WAIT FOR THE BOARD TO SETTLE. The app plays the opponent's reply on a 350ms
+// timer; under load (the suite runs 16 tests back to back in one browser) the
+// reply can still be in flight when we snapshot. Reading the FEN mid-reply made
+// the "wrong" move below legal in a position the app never showed, so the app
+// rejected it and BOTH downstream checks failed — a false regression that only
+// ever appeared in-suite. Poll until the position stops changing instead of
+// trusting one fixed sleep.
+const settle = async () => {
+  let prev = null;
+  for (let i = 0; i < 12; i++) {
+    const s = await snap();
+    if (prev !== null && s.fen === prev) return s;
+    prev = s.fen;
+    await sleep(400);
+  }
+  return await snap();
+};
+const afterFirst = await settle();
 console.log("after correct move 1:", JSON.stringify(afterFirst));
 ok(afterFirst.fen !== servedFen, "the correct move registered on the board");
 
