@@ -1327,3 +1327,44 @@ body {
      also smaller here so more fit per row. */
   .board-panel__meta .theme-chip { display: inline-flex; font-size: 0.68rem; }
 }
+
+/* ==========================================================================
+   GLOBAL PROGRESS BAR (Training tab)
+   Pixel-art loading bar, matching the reference: a hard dark outline, a light
+   inset track, and a green fill with a lighter top band and a darker bottom
+   band (the classic pixel shading). The fill animates in STEPS rather than
+   smoothly, so it reads as a loading bar rather than a CSS transition.
+   ========================================================================== */
+.pixel-bar {
+  position: relative;
+  height: 16px;
+  padding: 2px;
+  border: 2px solid #2b2a28;
+  border-radius: 2px;
+  background: #f1f0ea;
+  box-shadow: none;
+  overflow: hidden;
+}
+.pixel-bar__fill {
+  height: 100%;
+  background-color: #6fbf3f;
+  background-image: linear-gradient(
+    180deg,
+    #93d763 0%,
+    #93d763 42%,
+    #6fbf3f 42%,
+    #6fbf3f 76%,
+    #4e9a2b 76%,
+    #4e9a2b 100%
+  );
+  transition: width 260ms steps(10, end);
+  min-width: 0;
+}
+.pixel-bar__fill[data-empty="true"] { width: 0 !important; }
+
+/* Dark theme: keep the pixel frame black, lighten the track so the empty part
+   still reads as "empty" rather than merging into the page. */
+.dark .pixel-bar {
+  background: #d8d5cc;
+  border-color: #0d0d0c;
+}

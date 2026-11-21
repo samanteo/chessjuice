@@ -45,6 +45,20 @@ export interface TrainingBlock {
   themeIndex: number;
   /** Puzzles finished WITHIN the current theme. */
   done: number;
+  /**
+   * FURTHEST position this block has ever reached, in the same units as
+   * `themeIndex`/`done` (NOT in raw puzzles).
+   *
+   * This is what makes the GLOBAL bar honest: finishing a block and restarting
+   * it must not remove its contribution, and finishing it twice must not add a
+   * second time. Only the first run through a round counts, so the bar is
+   * `Σ min(credit, total)` — monotone, and immune to restarts.
+   *
+   * Stored as a position rather than a puzzle count so that changing the global
+   * puzzles-per-theme in Settings re-scales credit along with everything else
+   * instead of silently meaning a different number of puzzles.
+   */
+  credit: { themeIndex: number; done: number };
 }
 
 interface Stored {
@@ -76,6 +90,9 @@ function isBlock(p: unknown): p is TrainingBlock {
     o.themeIndex >= 0 &&
     typeof o.done === "number" &&
     o.done >= 0
+    // `credit` is intentionally NOT required: blocks written before the global
+    // bar existed have no credit, and sanitizeBlock derives one from their
+    // position so their progress still counts toward the bar.
   );
 }
 
@@ -85,12 +102,31 @@ function sanitizeBlock(b: TrainingBlock): TrainingBlock {
   // a hand-edited/stale value can never render "23 / 8".
   const themeIndex = Math.min(Math.max(0, Math.trunc(b.themeIndex)), themes.length);
   const done = themeIndex >= themes.length ? 0 : Math.max(0, Math.trunc(b.done));
+  const rawCredit = b.credit as { themeIndex?: unknown; done?: unknown } | undefined;
+  const rawCreditThemeIndex =
+    typeof rawCredit?.themeIndex === "number" && Number.isFinite(rawCredit.themeIndex)
+      ? Math.max(0, Math.trunc(rawCredit.themeIndex))
+      : themeIndex;
+  // Credit cannot point past the end of a list that has since shrunk — removing
+  // themes must not leave a block claiming rounds it no longer has.
+  const creditThemeIndex = Math.min(rawCreditThemeIndex, themes.length);
+  const rawCreditDone =
+    typeof rawCredit?.done === "number" && Number.isFinite(rawCredit.done)
+      ? Math.max(0, Math.trunc(rawCredit.done))
+      : done;
+  const creditDone = creditThemeIndex >= themes.length ? 0 : rawCreditDone;
   return {
     id: b.id,
     name: b.name.trim() || "Block",
     themes,
     themeIndex,
     done,
+    // Credit is never allowed to sit BEHIND the current position: reaching a
+    // position earns it, so a stale/absent credit is raised to where the block is.
+    credit: {
+      themeIndex: Math.max(creditThemeIndex, themeIndex),
+      done: creditThemeIndex > themeIndex ? creditDone : Math.max(creditDone, done),
+    },
   };
 }
 
@@ -157,6 +193,7 @@ function migrateFromLegacy(): Stored | null {
         themes,
         themeIndex,
         done,
+        credit: { themeIndex, done },
       }),
     ],
   };
@@ -166,7 +203,16 @@ function migrateFromLegacy(): Stored | null {
 function readStored(): { state: Stored; migrated: boolean } {
   const empty = (): Stored => ({
     selected: null,
-    blocks: [sanitizeBlock({ id: makeId(), name: defaultBlockName(0), themes: [], themeIndex: 0, done: 0 })],
+    blocks: [
+      sanitizeBlock({
+        id: makeId(),
+        name: defaultBlockName(0),
+        themes: [],
+        themeIndex: 0,
+        done: 0,
+        credit: { themeIndex: 0, done: 0 },
+      }),
+    ],
   });
   if (typeof window === "undefined") return { state: empty(), migrated: false };
   try {
@@ -220,6 +266,35 @@ export function blockPosition(b: TrainingBlock, perTheme: number): number {
 /** A block is finished when it has walked past its last theme. */
 export function blockComplete(b: Pick<TrainingBlock, "themes" | "themeIndex">): boolean {
   return b.themes.length > 0 && b.themeIndex >= b.themes.length;
+}
+
+/**
+ * How many puzzles a block has EARNED toward the global bar.
+ *
+ * `min(furthest reached, what the block currently contains)` — so a block can
+ * never contribute more than its own total, and restarting it (which zeroes its
+ * position but not its credit) cannot take the credit away. That is what makes
+ * "finish a block twice" count once.
+ */
+export function blockCredit(b: TrainingBlock, perTheme: number): number {
+  const count = Math.max(1, perTheme);
+  const reached = b.credit.themeIndex * count + b.credit.done;
+  return Math.min(Math.max(0, reached), blockTotal(b, count));
+}
+
+/** GLOBAL progress across every block — the sum of first-run credits. */
+export function globalProgress(
+  blocks: TrainingBlock[],
+  perTheme: number
+): { done: number; total: number } {
+  const count = Math.max(1, perTheme);
+  let done = 0;
+  let total = 0;
+  for (const b of blocks) {
+    total += blockTotal(b, count);
+    done += blockCredit(b, count);
+  }
+  return { done, total };
 }
 
 /**
@@ -299,6 +374,7 @@ export function useTrainingBlocks() {
           themes: [],
           themeIndex: 0,
           done: 0,
+          credit: { themeIndex: 0, done: 0 },
         });
         newId = block.id;
         return { selected: block.id, blocks: [...s.blocks, block] };
@@ -335,6 +411,7 @@ export function useTrainingBlocks() {
           themes: [],
           themeIndex: 0,
           done: 0,
+          credit: { themeIndex: 0, done: 0 },
         });
         return { selected: fresh.id, blocks: [fresh] };
       }
@@ -369,12 +446,23 @@ export function useTrainingBlocks() {
     [withBlock]
   );
 
-  /** Remove ONE round by position — duplicates mean position matters. */
+  /**
+   * Remove ONE round by position — duplicates mean position matters.
+   *
+   * Removing a round the user has ALREADY PASSED shifts the position back by one
+   * so they stay on the same round instead of silently skipping the next one.
+   * The credit banked by sanitizeBlock keeps the earned part of the global bar.
+   */
   const removeThemeAt = useCallback(
     (id: string, index: number) => {
       withBlock(id, (b) => {
         const themes = b.themes.filter((_, i) => i !== index);
-        return { ...b, themes, themeIndex: Math.min(b.themeIndex, themes.length) };
+        const shift = index < b.themeIndex ? 1 : 0;
+        return {
+          ...b,
+          themes,
+          themeIndex: Math.min(Math.max(0, b.themeIndex - shift), themes.length),
+        };
       });
     },
     [withBlock]
@@ -385,7 +473,16 @@ export function useTrainingBlocks() {
     (id: string, themeId: string) => {
       withBlock(id, (b) => {
         const themes = b.themes.filter((t) => t !== themeId);
-        return { ...b, themes, themeIndex: Math.min(b.themeIndex, themes.length) };
+        // Every removed round that sat BEFORE the current one pulls the position
+        // back with it, so the user continues on the same round.
+        const removedBefore = b.themes
+          .slice(0, Math.min(b.themeIndex, b.themes.length))
+          .filter((t) => t === themeId).length;
+        return {
+          ...b,
+          themes,
+          themeIndex: Math.min(Math.max(0, b.themeIndex - removedBefore), themes.length),
+        };
       });
     },
     [withBlock]

@@ -13,6 +13,8 @@ import {
   blockTotal,
   blockPosition,
   blockComplete,
+  blockCredit,
+  globalProgress,
   sanitizeQuickStartCount,
   type TrainingBlock,
 } from "@/hooks/useTrainingBlocks";
@@ -1542,6 +1544,15 @@ function TrainingTab({
   const [confirmDeleteBlock, setConfirmDeleteBlock] = useState<string | null>(null);
   const [confirmRestartBlock, setConfirmRestartBlock] = useState<string | null>(null);
 
+  /**
+   * GLOBAL progress across all blocks — "0 / 150" for three blocks of 50.
+   *
+   * Each block contributes its FIRST-RUN credit, so finishing a block twice
+   * cannot add twice, and restarting a finished block cannot take it away. See
+   * blockCredit for why the credit is banked rather than read from the position.
+   */
+  const global = globalProgress(blocks, perTheme);
+
   const selBlock = block ?? null;
   const selTotal = selBlock ? blockTotal(selBlock, perTheme) : 0;
   const selDone = selBlock ? blockComplete(selBlock) : false;
@@ -1568,6 +1579,35 @@ function TrainingTab({
 
   const quickStartRow = (
     <div className="mb-4">
+      {/* ---- GLOBAL progress: every block's first-run progress, summed ----
+          "0 / 150" for three blocks of 50. A block only ever contributes what it
+          has EARNED (see blockCredit), so finishing one twice counts once and
+          restarting a finished one does not empty the bar. */}
+      <div className="mb-2" data-testid="global-progress" data-done={global.done} data-total={global.total}>
+        <div className="flex items-center justify-between mb-1">
+          <span className="text-[10px] font-semibold uppercase tracking-widest text-gray-500 dark:text-[#6b6a68]">
+            Global training
+          </span>
+          <span className="text-xs font-semibold tabular-nums" data-testid="global-progress-label">
+            {global.done} / {global.total}
+          </span>
+        </div>
+        <div
+          className="pixel-bar"
+          role="progressbar"
+          aria-valuemin={0}
+          aria-valuemax={global.total}
+          aria-valuenow={global.done}
+          aria-label="Global training progress"
+        >
+          <div
+            className="pixel-bar__fill"
+            data-empty={global.done === 0 ? "true" : "false"}
+            style={{ width: `${global.total > 0 ? Math.round((global.done / global.total) * 1000) / 10 : 0}%` }}
+          />
+        </div>
+      </div>
+
       {/* ---- Block row: up to 3 named blocks, each with its own memory ---- */}
       <div className="flex flex-wrap items-center gap-2 mb-2" data-testid="block-row">
         {blocks.map((b: any) => {
