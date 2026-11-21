@@ -581,9 +581,7 @@ export function PuzzleBoard({
   const canGoForward = scrubIndex !== null && scrubIndex < history.length - 1;
   // The solver plays the odd-indexed plies (0 is the opponent's setup move),
   // so the number of moves YOU have to find is floor(plies / 2).
-  const solverMoveNumber = Math.floor(moveIndex / 2) + 1;
   const solverTotal = Math.max(1, Math.floor(solutionMoves.length / 2));
-  const movesLeft = Math.max(0, solverTotal - (solverMoveNumber - 1));
 
   const displayIndex = scrubIndex === null ? history.length - 1 : scrubIndex;
   const displayView = history[displayIndex] ?? view;
@@ -710,49 +708,50 @@ export function PuzzleBoard({
             Puzzle #{puzzle.id}
           </div>
           <div className="board-panel__meta">
-            <span className="pill pill-neutral">
-              Rating&nbsp;<span className="tabular">{puzzle.rating}</span>
-            </span>
-            {/* YOUR rating, so it is visible while solving on Training, All themes
-                and Review alike — previously only the puzzle's rating showed, and
-                your own was only on the tab header (which the board replaces). */}
-            <span className="pill pill-you" data-testid="user-rating">
-              You&nbsp;<span className="tabular">{userRating}</span>
-            </span>
-            {/* "White to move" is only meaningful while the attempt is open. Once
-                the puzzle resolves it is dead weight in a row that has to fit the
-                theme chips, so it yields its space. */}
-            {status === "playing" && (
-              <span className="pill pill-accent">
-                {solverColor === "white" ? "White" : "Black"} to move
+            {/* Ratings live in their OWN group and never scroll: "my rating and
+                the puzzle's rating, side by side, always visible". Everything
+                that can be long (theme chips) goes in the sibling group below,
+                so it can wrap without ever pushing these two off-screen. */}
+            <span className="board-panel__ratings" data-testid="board-ratings">
+              <span className="pill pill-neutral">
+                Rating&nbsp;<span className="tabular">{puzzle.rating}</span>
               </span>
-            )}
-            <span className="pill pill-info" data-testid="move-counter">
-              {status === "correct" ? (
-                <>✓ Solved &mdash; {solverTotal} move{solverTotal === 1 ? "" : "s"}</>
-              ) : status === "wrong" ? (
-                <>Solution &mdash; {solverTotal} move{solverTotal === 1 ? "" : "s"}</>
-              ) : (
-                <>
-                  Move <span className="tabular">{solverMoveNumber}</span>
-                  <span className="tabular"> of {solverTotal}</span>
-                  {movesLeft > 1 && (
-                    <span style={{ opacity: 0.65 }}> &middot; {movesLeft - 1} to go</span>
+              {/* YOUR rating, so it is visible while solving on Training, All themes
+                  and Review alike — previously only the puzzle's rating showed, and
+                  your own was only on the tab header (which the board replaces). */}
+              <span className="pill pill-you" data-testid="user-rating">
+                You&nbsp;<span className="tabular">{userRating}</span>
+              </span>
+              {/* "White to move" is only meaningful while the attempt is open. Once
+                  the puzzle resolves it is dead weight in a row that has to fit the
+                  theme chips, so it yields its space. */}
+              {status === "playing" && (
+                <span className="pill pill-accent">
+                  {solverColor === "white" ? "White" : "Black"} to move
+                </span>
+              )}
+              {/* ONLY the resolved summary stays here. The live "Move X of Y" pill
+                  was removed: the row under the board already prints "1 / 3", so it
+                  was duplicated information eating the width the tags needed. */}
+              {status !== "playing" && (
+                <span className="pill pill-info" data-testid="move-counter">
+                  {status === "correct" ? (
+                    <>✓ Solved &mdash; {solverTotal} move{solverTotal === 1 ? "" : "s"}</>
+                  ) : (
+                    <>Solution &mdash; {solverTotal} move{solverTotal === 1 ? "" : "s"}</>
                   )}
-                </>
+                </span>
               )}
             </span>
-            {/* Themes. While solving, only the first three: the row has to stay
-                one line so the board keeps its height. Once the puzzle resolves
-                ALL of them are shown — that is the moment you want to see which
-                other patterns the position contained, and the to-move pill has
-                just freed its slot. */}
+            {/* Themes — ALL of them, while solving and after. This is the group
+                that wraps: it takes the full width under the ratings and flows
+                left-to-right, so nothing is hidden behind a sideways scroll. */}
             <span
               className="board-panel__themes"
               data-testid="puzzle-themes"
-              data-count={status === "playing" ? Math.min(3, puzzle.themes.length) : puzzle.themes.length}
+              data-count={puzzle.themes.length}
             >
-              {(status === "playing" ? puzzle.themes.slice(0, 3) : puzzle.themes).map((t) => (
+              {puzzle.themes.map((t) => (
                 <span key={t} className="pill pill-neutral theme-chip">
                   {t}
                 </span>

@@ -70,7 +70,9 @@ await ev(`document.querySelector('[data-testid="quickstart-button"]').click()`);
 await sleep(9000);
 
 const mid = await ev(`(() => {
-  const c = document.querySelector('[data-testid="move-counter"]');
+  // The counter under the board ("1 / 3"), not the header pill — the header
+  // "Move X of Y" pill was removed as duplicate information.
+  const c = document.querySelector('[data-testid="move-nav-position"]');
   const skip = document.querySelector('[data-testid="skip-button"]');
   const next = document.querySelector('[data-testid="next-button"]');
   return {
@@ -82,7 +84,7 @@ const mid = await ev(`(() => {
 })()`);
 console.log("mid-puzzle:", JSON.stringify(mid));
 ok(mid.counter !== null, `a move counter is shown (${mid.counter})`);
-ok(/of\s*\d/i.test(mid.counter ?? ""), `the counter states the TOTAL, not just the current move`);
+ok(/\/\s*\d/.test(mid.counter ?? ""), `the counter states the TOTAL, not just the current move`);
 ok(mid.skip !== null, `mid-puzzle the button is SKIP, not Next (${mid.skip})`);
 ok(!mid.nextVisibleMidPuzzle, "there is NO Next button to hit accidentally mid-puzzle");
 ok(mid.skipArmed === "false", "skip starts unarmed");
@@ -93,7 +95,7 @@ await ev(`document.querySelector('[data-testid="skip-button"]').click()`);
 await sleep(600);
 const afterOne = await ev(`(() => {
   const s = document.querySelector('[data-testid="skip-button"]');
-  return { armed: s?.getAttribute('data-skip-armed') ?? null, text: s?.innerText ?? null, blanked: !document.querySelector('[data-testid="move-counter"]') };
+  return { armed: s?.getAttribute('data-skip-armed') ?? null, text: s?.innerText ?? null, blanked: !document.querySelector('[data-testid="move-nav-position"]') };
 })()`);
 console.log("after ONE tap:", JSON.stringify(afterOne));
 ok(afterOne.armed === "true", "one tap ARMS the skip (does not skip yet)");
@@ -113,7 +115,7 @@ await sleep(500);
 await ev(`document.querySelector('[data-testid="skip-button"]').click()`);
 await sleep(6000);
 const afterTwo = await ev(`(() => ({
-  advanced: !!document.querySelector('[data-testid="move-counter"]'),
+  advanced: !!document.querySelector('[data-testid="move-nav-position"]'),
   skipArmed: document.querySelector('[data-testid="skip-button"]')?.getAttribute('data-skip-armed') ?? null,
 }))()`);
 console.log("after TWO taps:", JSON.stringify(afterTwo));

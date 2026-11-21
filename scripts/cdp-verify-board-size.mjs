@@ -48,7 +48,9 @@ const measure = () => ev(`(() => {
     skip: r(document.querySelector('[data-testid="skip-button"]')),
     next: r(document.querySelector('[data-testid="next-button"]')),
     hasTheme: !!document.querySelector('[data-testid="active-theme"]'),
-    hasMoveCounter: !!document.querySelector('[data-testid="move-counter"]'),
+    // The move counter lives in the row UNDER the board now ("1 / 3"); the
+    // header's "Move X of Y" pill was removed as duplicate information.
+    hasMoveCounter: !!document.querySelector('[data-testid="move-nav-position"]'),
     hasMoveNav: !!document.querySelector('[data-testid="move-nav"]'),
     scrollY: Math.round(window.scrollY),
     docH: document.documentElement.scrollHeight,

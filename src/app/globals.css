@@ -544,6 +544,14 @@ body {
   gap: 0.4rem;
   margin-top: 0.35rem;
 }
+/* Ratings are PINNED: "Rating / You" must never be scrolled out of reach. They
+   are a fixed-width group; only the theme chips beside/below them may wrap. */
+.board-panel__ratings {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex: 0 0 auto;
+}
 /* Theme chips live in their own inline row so they can wrap as a group once the
    solution is shown (all themes, not just the first three) without pushing the
    rating pills around. */
@@ -737,25 +745,31 @@ body {
     display: flex;
     align-items: center;
     gap: 0.1rem 0.5rem;
-    flex-wrap: nowrap;
+    /* WRAP: the meta group takes a full row of its own (flex-basis 100%), so
+       the titles container must be allowed to wrap or that row overflows. */
+    flex-wrap: wrap;
   }
   .board-panel__titles > div:first-child { flex: 0 0 auto; }   /* theme label */
   .board-panel__title { flex: 0 0 auto; }
+  /* WRAP, don't scroll. The ratings group is pinned (flex 0 0 auto) and the
+     theme chips take the full width on the next line and flow left-to-right.
+     A sideways scroller was the wrong tool: it cut tags off at the screen edge
+     and pushed the rating pills out of reach. The board is width-driven on a
+     phone, so an extra row costs a little page scroll, not board size. */
   .board-panel__meta {
     margin-top: 0;
-    flex: 1 1 auto;
+    flex: 1 1 100%;
     min-width: 0;
-    flex-wrap: nowrap;
-    overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
-    scrollbar-width: none;
+    flex-wrap: wrap;
+    overflow-x: visible;
+    row-gap: 0.25rem;
   }
-  .board-panel__meta::-webkit-scrollbar { display: none; }
-  .board-panel__meta > * { flex: 0 0 auto; }
-  /* The move counter is the one pill that must never be scrolled out of sight —
-     it is how you know where you are in a multi-move line. First on a phone
-     (CSS order only; desktop keeps Rating, You, then the counter). */
-  .board-panel__meta > [data-testid="move-counter"] { order: -1; }
+  .board-panel__ratings { flex: 0 0 auto; }
+  .board-panel__themes {
+    flex: 1 1 100%;
+    flex-wrap: wrap;
+    row-gap: 0.25rem;
+  }
   /* Once the puzzle resolves, the theme chips are the whole point of the row:
      let it WRAP so every theme is visible without horizontal scrolling. Height
      is content-driven on a phone now (the board is width-driven), so the extra
@@ -1211,14 +1225,10 @@ body {
    the board is full-bleed, so forcing one row there would only clip the
    important "Move X of Y" pill for no gain. */
 @media (max-width: 380px) {
-  .board-panel__meta {
-    flex-wrap: nowrap;
-    overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
-    scrollbar-width: none;
-  }
-  .board-panel__meta::-webkit-scrollbar { display: none; }
-  .board-panel__meta > * { flex: 0 0 auto; }
+  /* Same wrapping model as 600px and below — the tags wrap, nothing scrolls
+     sideways. Kept as its own block only to tighten the gaps a little. */
+  .board-panel__meta { row-gap: 0.2rem; }
+  .board-panel__themes { row-gap: 0.2rem; }
 }
 
 /* Phones: DROP the trailing theme chips from the header.
@@ -1231,13 +1241,10 @@ body {
    board, and what matters in the meta row (Rating / You / side to move / Move X of
    Y) stays. Removing them makes the header height deterministic. */
 @media (max-width: 600px) {
-  .board-panel__meta .theme-chip { display: none; }
-  /* ...but NOT once the puzzle is resolved. That is exactly when you want to see
-     which other patterns the position contained — the whole point of the request
-     "show puzzle tags when the puzzle is solved". Chips are hidden while SOLVING
-     to keep the header height deterministic; the resolved state is static, so
-     wrapping costs nothing but a little scroll. */
-  .board-panel[data-resolved="true"] .board-panel__meta .theme-chip {
-    display: inline-flex;
-  }
+  /* Theme chips are ALWAYS shown now, while solving as well as after. The old
+     `display: none` here was written when the header had to keep a fixed height
+     (the board was height-limited); the board is width-driven on a phone, so the
+     tags wrap onto their own row and cost only a little page scroll. Chips are
+     also smaller here so more fit per row. */
+  .board-panel__meta .theme-chip { display: inline-flex; font-size: 0.68rem; }
 }
