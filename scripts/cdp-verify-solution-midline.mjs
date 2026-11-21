@@ -91,17 +91,34 @@ ok(!!s0.fen, "board is on screen");
 
 // The app may serve a DIFFERENT puzzle than our probe. Read the id from the board
 // head and fetch THAT puzzle's moves, so the moves we play are really its moves.
-const servedId = await ev(`(() => {
-  const t = document.querySelector('.board-panel__title');
-  const m = (t?.innerText || document.body.innerText).match(/Puzzle #([A-Za-z0-9]{5})/);
-  return m ? m[1] : null;
-})()`);
-console.log("served puzzle id:", servedId);
-const served = servedId ? await (await fetch(`http://localhost:3000/api/puzzle?id=${servedId}`)).json() : null;
-const servedPuzzle = served ? (served.puzzle ?? served) : null;
-const servedFen = s0.fen;
-const moves = servedPuzzle ? servedPuzzle.moves.split(" ").filter(Boolean) : puzzle.mv;
-console.log(`served moves: ${moves.join(" ")} (${moves.length} plies)`);
+// The queue may hand out a 2-move puzzle. Skip until a multi-move one is served —
+// the failure only means something when there is a line left to walk.
+const readServed = async () => {
+  const id = await ev(`(() => {
+    const t = document.querySelector('.board-panel__title');
+    const m = (t?.innerText || document.body.innerText).match(/Puzzle #([A-Za-z0-9]{5})/);
+    return m ? m[1] : null;
+  })()`);
+  if (!id) return { id: null, mv: [] };
+  const raw = await (await fetch(`http://localhost:3000/api/puzzle?id=${id}`)).json();
+  const p = raw.puzzle ?? raw;
+  return { id, mv: (p.moves || "").split(" ").filter(Boolean) };
+};
+let servedInfo = await readServed();
+for (let i = 0; i < 8 && servedInfo.mv.length < 6; i++) {
+  console.log(`  served ${servedInfo.id} has ${servedInfo.mv.length} plies — skipping`);
+  await ev(`document.querySelector('[data-testid="skip-button"]')?.click()`);
+  await sleep(300);
+  await ev(`document.querySelector('[data-testid="skip-button"]')?.click()`);
+  await sleep(3500);
+  servedInfo = await readServed();
+}
+const servedId = servedInfo.id;
+// Re-read the board AFTER skipping — the position changed with each skip.
+const servedSnap = await snap();
+const servedFen = servedSnap.fen;
+const moves = servedInfo.mv;
+console.log(`served puzzle ${servedId}: ${moves.join(" ")} (${moves.length} plies)`);
 ok(moves.length >= 6, "the served puzzle has a real line to walk");
 const finalFen = (() => {
   const c = new Chess(servedFen);
@@ -114,8 +131,9 @@ const finalFen = (() => {
 // Play the first solver move correctly. If the served puzzle is not the one we
 // probed, this move may be illegal — in that case bail out loudly rather than
 // assert on a position we never reached.
+const g2 = await geo();
 const first = moves[1];
-const a = xy(g, first.slice(0,2)), b = xy(g, first.slice(2,4));
+const a = xy(g2, first.slice(0,2)), b = xy(g2, first.slice(2,4));
 await click(a.x, a.y); await sleep(120); await click(b.x, b.y);
 await sleep(1400);
 const afterFirst = await snap();
