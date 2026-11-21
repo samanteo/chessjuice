@@ -1197,7 +1197,21 @@ function PuzzleDashboardPageInner() {
               mobile (sm:) so the desktop layout is untouched. */}
           <div className="flex items-center justify-between h-11 sm:h-16">
             <div className="flex items-center gap-4">
-              <h1 className="text-lg sm:text-2xl font-bold text-gray-900 dark:text-white">♟️ Puzzle Trainer</h1>
+              {/* The branding doubles as HOME. Tapping it from ANY tab drops
+                  whatever puzzle is on the board and returns to a pristine
+                  Training tab (no board, no active theme) — the same path the
+                  "Go to Training" action uses. Unmounting the board clears its
+                  timers and the half-finished attempt is simply discarded. */}
+              <button
+                type="button"
+                onClick={goToTraining}
+                data-testid="home-logo"
+                title="Back to Training — ends the current puzzle"
+                aria-label="Back to Training — ends the current puzzle"
+                className="text-lg sm:text-2xl font-bold text-gray-900 dark:text-white rounded-lg hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
+              >
+                ♟️ Puzzle Trainer
+              </button>
 
               {/* Tab Navigation */}
               <nav className="hidden md:flex items-center gap-1 bg-gray-100 dark:bg-gray-700 rounded-lg p-1">
