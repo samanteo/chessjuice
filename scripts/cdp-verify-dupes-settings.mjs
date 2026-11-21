@@ -98,9 +98,33 @@ await sleep(900);
 await ev(`document.querySelector('[data-testid="picker-row-pin"]')?.click()`);
 await sleep(900);
 const label2 = await ev(`(document.querySelector('[data-testid="picker-row-pin"]')||{}).innerText?.replace(/\\s+/g,' ') ?? null`);
-console.log(`  after two adds the row reads: ${JSON.stringify(label2)}`);
-ok(/again/i.test(label2 ?? "") || /x2|x 2/i.test(label2 ?? ""),
-   `the picker acknowledges the extra copy ("${label2}")`);
+const count2 = Number(await ev(`(document.querySelector('[data-testid="picker-row-pin"]')||{}).getAttribute('data-pin-count') ?? "0"`));
+console.log(`  after two adds the row reads: ${JSON.stringify(label2)} (data-pin-count=${count2})`);
+// The harness may already hold a copy of "pin", so assert the DELTA, not an
+// absolute 2 — what matters is that adding twice stacked and the row says how.
+ok(count2 >= 2, `the picker acknowledges the extra copies (count=${count2})`);
+ok(/unpin/i.test(label2 ?? ""), `the row reads as an UNPIN action once pinned ("${label2}")`);
+// The row must also offer a way OUT of a multi-pin — the picker used to have
+// none once an id was pinned twice, so the only escape was "Unpin all".
+const unpinThere = await ev(`!!document.querySelector('[data-testid="picker-unpin-pin"]')`);
+ok(unpinThere, "a pinned row offers its own Unpin control");
+
+// Clicking it must actually clear EVERY copy of that id, in one tap.
+await ev(`document.querySelector('[data-testid="picker-unpin-pin"]')?.click()`);
+await sleep(1200);
+const countAfterUnpin = await ev(`(document.querySelector('[data-testid="picker-row-pin"]')||{}).getAttribute('data-pin-count') ?? null`);
+const labelAfter = await ev(`(document.querySelector('[data-testid="picker-row-pin"]')||{}).innerText?.replace(/\\s+/g,' ') ?? null`);
+console.log(`  after tapping the row's Unpin: count=${countAfterUnpin}, "${labelAfter}"`);
+ok(countAfterUnpin === "0", `one tap cleared every copy of the id (count=${countAfterUnpin})`);
+ok(!/unpin/i.test(labelAfter ?? ""), "the row falls back to its plain Pin state");
+// Re-pin the same number of copies we just cleared, so the later
+// duplicate/unpin-by-card steps still see the same totals they expect.
+for (let i = 0; i < count2; i++) {
+  await ev(`document.querySelector('[data-testid="picker-row-pin"]')?.click()`);
+  await sleep(500);
+}
+const countRestored = Number(await ev(`(document.querySelector('[data-testid="picker-row-pin"]')||{}).getAttribute('data-pin-count') ?? "0"`));
+console.log(`  restored copies: ${countRestored} (was ${count2})`);
 
 await ev(`document.querySelector('[data-testid="picker-close"]')?.click()`);
 await sleep(1500);

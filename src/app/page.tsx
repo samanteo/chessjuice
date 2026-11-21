@@ -185,7 +185,7 @@ function PuzzleDashboardPageInner() {
   }, []);
 
   // Pinned ("quick pin") themes — persisted to localStorage.
-  const { pinned, pin, pinMany, unpin, toggle, clear: unpinAll, reorder } = usePinnedThemes();
+  const { pinned, pin, pinMany, unpin, unpinId, toggle, clear: unpinAll, reorder } = usePinnedThemes();
   const [showPicker, setShowPicker] = useState(false);
 
   // Apply theme filter from settings
@@ -1337,6 +1337,7 @@ function PuzzleDashboardPageInner() {
         onToggle={toggle}
         onPinMany={pinMany}
         onUnpinAll={unpinAll}
+        onUnpin={unpinId}
       />
 
       {/* Settings Modal */}

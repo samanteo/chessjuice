@@ -80,6 +80,15 @@ export function usePinnedThemes() {
   }, []);
 
   /**
+   * Remove EVERY copy of one id in a single tap. The grid's × button removes one
+   * copy at a time; this is the escape hatch for a theme that was pinned many
+   * times (the picker used to offer no way to undo a multi-pin at all).
+   */
+  const unpinId = useCallback((themeId: string) => {
+    setPinned((prev) => prev.filter((x) => x !== themeId));
+  }, []);
+
+  /**
    * Toggle ADDS another pin for a theme/opening (the same id may be pinned
    * repeatedly). Removal is positional: use `unpin(index)` or the grid's × button.
    */
@@ -97,5 +106,5 @@ export function usePinnedThemes() {
 
   const clear = useCallback(() => setPinned([]), []);
 
-  return { pinned, loaded, pin, pinMany, unpin, toggle, isPinned, reorder, clear, PINS_KEY };
+  return { pinned, loaded, pin, pinMany, unpin, unpinId, toggle, isPinned, reorder, clear, PINS_KEY };
 }

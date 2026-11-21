@@ -61,6 +61,11 @@ await send("Page.navigate", { url: "http://localhost:3000/?cb=" + Date.now() });
 await sleep(12000);
 await ev(`localStorage.setItem('puzzle_trainer_progress_v2', ${JSON.stringify(JSON.stringify(progress))})`);
 await ev(`localStorage.setItem('puzzle_trainer_group_by_theme','0')`);
+// MOTIF TAGS MUST BE VISIBLE for this test: it identifies the group of the
+// served puzzle by reading the board head's theme chips, and those are hidden
+// while the TAGS switch is off (its default). Without this the read is `null`
+// and every grouping assertion fails on a UI setting, not on the behaviour.
+await ev(`localStorage.setItem('puzzle_trainer_settings', JSON.stringify({ showTags: true }))`);
 await send("Page.navigate", { url: "http://localhost:3000/?cb=" + Date.now() });
 await sleep(13000);
 await ev(`(()=>{const b=[...document.querySelectorAll('nav button')].find(x=>/Review/i.test(x.innerText));b&&b.click()})()`);

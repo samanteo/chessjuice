@@ -21,6 +21,8 @@ interface ThemePickerProps {
   onPinMany: (themeIds: string[]) => void;
   /** Clear every pinned theme/opening (bulk escape hatch). */
   onUnpinAll?: () => void;
+  /** Remove every copy of ONE theme/opening (multi-pin escape hatch). */
+  onUnpin?: (themeId: string) => void;
   /**
    * Live puzzle counts per BASE opening family (camelCase id -> count), as
    * returned by the store's getOpeningCounts(). Optional so the picker's props
@@ -76,6 +78,7 @@ export function ThemePicker({
   onToggle,
   onPinMany,
   onUnpinAll,
+  onUnpin,
   openingCounts = {},
 }: ThemePickerProps) {
   const [query, setQuery] = useState("");
@@ -194,14 +197,26 @@ export function ThemePicker({
     const count = pinnedCounts.get(t.id) ?? 0;
     const isPinned = count > 0;
     return (
-      <button
+      // A DIV, not a button: the row needs its own Unpin button nested inside,
+      // and a button inside a button is invalid HTML (the inner click would also
+      // fire the outer one and re-pin what you just removed).
+      <div
         key={`${t.kind}-${t.id}`}
+        role="button"
+        tabIndex={0}
         onClick={() => onToggle(t.id)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            onToggle(t.id);
+          }
+        }}
+        title={isPinned ? "Tap to pin another copy" : "Tap to pin"}
         data-testid={t.kind === "opening" ? `picker-opening-${t.id}` : `picker-row-${t.id}`}
         data-pinned={isPinned ? "true" : "false"}
         data-pin-count={count}
         data-kind={t.kind}
-        className={`w-full p-3 rounded-lg text-left transition-colors border ${
+        className={`w-full p-3 rounded-lg text-left transition-colors border cursor-pointer ${
           isPinned
             ? "bg-blue-50 dark:bg-blue-900/20 border-blue-300 dark:border-blue-700"
             : "bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50"
@@ -232,12 +247,27 @@ export function ThemePicker({
             <span className="px-2 py-1 bg-gray-100 dark:bg-gray-700 rounded-full text-xs font-mono text-gray-600 dark:text-gray-400">
               {fmtCount(t.count)}
             </span>
-            <span className="text-xs font-medium text-blue-600 dark:text-blue-400">
-              {isPinned ? (count > 1 ? `Pinned ×${count} · pin again` : "Pin again") : "Pin"}
-            </span>
+            {isPinned ? (
+              <button
+                type="button"
+                onClick={(e) => {
+                  // Do NOT let the row's own click fire: that would add a copy
+                  // back immediately after removing them.
+                  e.stopPropagation();
+                  onUnpin?.(t.id);
+                }}
+                data-testid={`picker-unpin-${t.id}`}
+                title={count > 1 ? `Remove all ${count} pins` : "Remove this pin"}
+                className="px-2 py-1 rounded-full text-xs font-medium bg-red-50 text-red-600 border border-red-200 hover:bg-red-100 dark:bg-red-900/20 dark:text-red-300 dark:border-red-800"
+              >
+                Unpin{count > 1 ? ` ×${count}` : ""}
+              </button>
+            ) : (
+              <span className="text-xs font-medium text-blue-600 dark:text-blue-400">Pin</span>
+            )}
           </div>
         </div>
-      </button>
+      </div>
     );
   };
 
