@@ -84,7 +84,7 @@ async function boot(width, height, mobile) {
   // `attempts === 0` that have nothing to do with what is being tested.
   await ev(`localStorage.setItem('puzzle_trainer_sync','off');`);
   await ev(`localStorage.setItem('puzzle_trainer_pinned_themes', JSON.stringify(["fork","pin"]))`);
-  await ev(`localStorage.setItem('puzzle_trainer_settings', JSON.stringify({ rating: 1500, quickStartCount: 6 }))`);
+  await ev(`localStorage.setItem('puzzle_trainer_settings', JSON.stringify({ rating: 1500, quickStartCount: 6, showTags: false, showDots: true }))`);
   await send("Page.navigate", { url: "http://localhost:3000/?cb=" + Date.now() });
   await sleep(16000);
   await startPuzzle();

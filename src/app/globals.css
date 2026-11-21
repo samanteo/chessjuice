@@ -578,7 +578,11 @@ body {
 }
 /* The switch column: TAGS on top, DOTS under it, right-aligned in the meta row.
    The left auto-margin lives on the WRAPPER (not on .tag-toggle) so the pair
-   moves together as one block and the ratings never get pushed off-screen. */
+   moves together as one block and the ratings never get pushed off-screen.
+   STACKED ONLY ON PHONES. There the board is width-limited (390px wide beats a
+   taller chrome), so the extra row of switches costs nothing. On a wide screen
+   the board is HEIGHT-limited, so a second stacked switch row would shrink it —
+   the pair goes inline from sm: up and the meta row keeps its old height. */
 .board-panel__toggles {
   margin-left: auto;
   display: inline-flex;
@@ -586,6 +590,13 @@ body {
   align-items: flex-end;
   gap: 0.25rem;
   flex: 0 0 auto;
+}
+@media (min-width: 640px) {
+  .board-panel__toggles {
+    flex-direction: row;
+    align-items: center;
+    gap: 0.4rem;
+  }
 }
 .board-panel__toggles .tag-toggle { margin-left: 0; }
 .tag-toggle[data-on="true"] {

@@ -151,10 +151,20 @@ const wrong = (() => {
 })();
 if (!wrong) { console.log("no legal wrong move available"); ws.close(); process.exit(2); }
 const w1 = xy(g, wrong.from), w2 = xy(g, wrong.to);
-await click(w1.x, w1.y); await sleep(120); await click(w2.x, w2.y);
-await sleep(1200);
-
+// The click can land while the board is still settling, in which case it is
+// rejected as illegal and NO failure is recorded — the board then looks
+// unchanged (same FEN) and ▶ stays disabled, which read as a false regression.
+// So: click, then require the app to have actually resolved the attempt
+// (Next puzzle is offered once it has) before asserting anything.
+const resolved = () => ev(`!!document.querySelector('[data-testid="next-button"]')`);
+for (let i = 0; i < 4; i++) {
+  await click(w1.x, w1.y); await sleep(150); await click(w2.x, w2.y);
+  await sleep(1200);
+  if (await resolved()) break;
+  console.log("  (the wrong move did not register — retrying)");
+}
 const afterWrong = await snap();
+ok(await resolved(), "the failed attempt was registered (Next puzzle offered)");
 console.log("after WRONG move:", JSON.stringify(afterWrong));
 ok(afterWrong.fen !== finalFen, "board did NOT jump to the final position");
 ok(afterWrong.fen === afterFirst.fen, "board shows the position where the solver failed");
@@ -164,11 +174,16 @@ await sleep(1600);
 const later = await snap();
 ok(later.fen === afterWrong.fen, "board stays put 1.6s later (no timer hijack)");
 
-// The rest of the line must be walkable with ▶.
+// The rest of the line must be walkable with ▶. Poll for the position to change
+// instead of sleeping a fixed 900ms — in a long suite run the button can still
+// be settling, and a single fixed wait made this flake.
 const before = await snap();
-await ev(`document.querySelector('[data-testid="move-forward"]')?.click()`);
-await sleep(900);
-const fwd = await snap();
+let fwd = before;
+for (let i = 0; i < 6 && fwd.fen === before.fen; i++) {
+  await ev(`document.querySelector('[data-testid="move-forward"]')?.click()`);
+  await sleep(500);
+  fwd = await snap();
+}
 ok(fwd.fen !== before.fen, "▶ walks forward into the solution line");
 ok(fwd.fen !== finalFen || true, "▶ does not skip to the end");
 
