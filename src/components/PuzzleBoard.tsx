@@ -237,6 +237,16 @@ export function PuzzleBoard({
       setScrubIndex(lineStartRef.current);
       return;
     }
+
+    // CANCEL PENDING ANIMATION TIMERS FIRST. The opponent's reply is committed
+    // 350ms after the solver's move, so failing or asking for the solution inside
+    // that window leaves a timer queued. When it fires it calls commitView(),
+    // which clears scrubIndex — and the board jumps to the LAST position of the
+    // line instead of the one you failed on. That is the "after I got a move or
+    // two right, the solution jumps to the last move" report. Killing the timers
+    // here makes the position we land on below final, whatever was queued.
+    timersRef.current.forEach((t) => clearTimeout(t));
+    timersRef.current = [];
     const g = new Chess(gameRef.current.fen());
     let last: Key[] | undefined;
     const steps: Snapshot[] = [];
