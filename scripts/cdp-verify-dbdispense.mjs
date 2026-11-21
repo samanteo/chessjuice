@@ -94,9 +94,11 @@ ok(dispenseCalls.length > 0, "the client called /api/dispense (server catalogue 
 const state = await evalJs(`(() => {
   const info=document.body.innerText;
   const m=info.match(/Puzzle #(\\w+)/);
-  const r=info.match(/Rating\\s*\\n?\\s*(\\d{3,4})/);
+  // The head's rating pill is "1429 · you 1500" now (no "Rating" word), so read
+  // the puzzle's number from its own node instead of scraping the text.
+  const r=document.querySelector('[data-testid="puzzle-rating"]')?.innerText?.trim() ?? null;
   const s=JSON.parse(localStorage.getItem('puzzle_trainer_settings')||'{}');
-  return { puzzleId:m?m[1]:null, servedRating:r?Number(r[1]):null, userRating:s.rating??null,
+  return { puzzleId:m?m[1]:null, servedRating:r?Number(r):null, userRating:s.rating??null,
            hasBoard: !!document.querySelector('cg-board'),
            boardW: Math.round((document.querySelector('cg-board')?.getBoundingClientRect().width)||0) };
 })()`);

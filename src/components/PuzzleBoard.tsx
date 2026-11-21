@@ -722,70 +722,23 @@ export function PuzzleBoard({
       {/* Head */}
       <div className="board-panel__head">
         <div className="board-panel__titles">
-          {/* What you asked to practise. Prominent, above the board, on every
-              page (Training / All themes / Review). */}
-          {angleLabel && (
-            <div
-              className="text-sm font-semibold text-[#629924] dark:text-[#8bbf4a] mb-1"
-              data-testid="active-theme"
-              data-angle={angleLabel}
-            >
-              {angleLabel}
-            </div>
-          )}
-          <div className="board-panel__title">
-            <span
-              className={`inline-block h-2.5 w-2.5 rounded-full ${
-                solverColor === "white" ? "bg-white ring-1 ring-neutral-300" : "bg-neutral-900 ring-1 ring-neutral-600"
-              }`}
-              aria-hidden
-            />
-            Puzzle #{puzzle.id}
-          </div>
-          <div className="board-panel__meta">
-            {/* Ratings live in their OWN group and never scroll: "my rating and
-                the puzzle's rating, side by side, always visible". Everything
-                that can be long (theme chips) goes in the sibling group below,
-                so it can wrap without ever pushing these two off-screen. */}
-            <span className="board-panel__ratings" data-testid="board-ratings">
-              <span className="pill pill-neutral">
-                Rating&nbsp;<span className="tabular">{puzzle.rating}</span>
-              </span>
-              {/* YOUR rating, so it is visible while solving on Training, All themes
-                  and Review alike — previously only the puzzle's rating showed, and
-                  your own was only on the tab header (which the board replaces). */}
-              <span className="pill pill-you" data-testid="user-rating">
-                You&nbsp;<span className="tabular">{userRating}</span>
-              </span>
-              {/* "White to move" is only meaningful while the attempt is open. Once
-                  the puzzle resolves it is dead weight in a row that has to fit the
-                  theme chips, so it yields its space. */}
-              {status === "playing" && (
-                <span className="pill pill-accent">
-                  {solverColor === "white" ? "White" : "Black"} to move
-                </span>
-              )}
-              {/* ONLY the resolved summary stays here. The live "Move X of Y" pill
-                  was removed: the row under the board already prints "1 / 3", so it
-                  was duplicated information eating the width the tags needed. */}
-              {status !== "playing" && (
-                <span className="pill pill-info" data-testid="move-counter">
-                  {status === "correct" ? (
-                    <>✓ Solved &mdash; {solverTotal} move{solverTotal === 1 ? "" : "s"}</>
-                  ) : (
-                    <>Solution &mdash; {solverTotal} move{solverTotal === 1 ? "" : "s"}</>
-                  )}
-                </span>
-              )}
-            </span>
-            {/* TAGS switch. Sits at the right end of the ratings row (margin-left:
-                auto pushes it there), so it never costs a row of its own. ON is
-                green and reads "TAGS"; OFF is red and reads "OFF". The choice is
-                persisted in settings — see onToggleTags. */}
-            {/* The two switches share one right-aligned column: TAGS on top, DOTS
-                below it ("add another button below the tags button"). ON is green
-                and reads the feature's name; OFF is red and reads "OFF", exactly
-                like TAGS. Both choices persist in settings. */}
+          {/* Top line: the angle you asked to practise on the left, the two
+              switches on the right. The switches used to be a stacked column in
+              the ratings row, which cost ~29px of height and pushed the controls
+              under the board below the fold on a short phone. Riding this row
+              costs nothing: the row already exists and is only ever one line. */}
+          <div className="board-panel__topline">
+            {/* What you asked to practise. Prominent, above the board, on every
+                page (Training / All themes / Review). */}
+            {angleLabel && (
+              <div
+                className="text-sm font-semibold text-[#629924] dark:text-[#8bbf4a]"
+                data-testid="active-theme"
+                data-angle={angleLabel}
+              >
+                {angleLabel}
+              </div>
+            )}
             <div className="board-panel__toggles">
               <button
                 type="button"
@@ -814,10 +767,61 @@ export function PuzzleBoard({
                 <span className="tag-toggle__label">{showDots ? "DOTS" : "OFF"}</span>
               </button>
             </div>
+          </div>
+          <div className="board-panel__title">
+            {/* The dot IS the colour indicator: white for White, black with a
+                white rim for Black (the head is dark, so a plain black dot would
+                be invisible). It carries the colour, so the "White to move" pill
+                is gone — it was a whole pill saying what the dot already says. */}
+            <span
+              className={`inline-block h-2.5 w-2.5 rounded-full ${
+                solverColor === "white" ? "bg-white ring-1 ring-neutral-400" : "bg-neutral-900 ring-2 ring-neutral-100"
+              }`}
+              data-testid="solver-color-dot"
+              data-color={solverColor}
+              title={solverColor === "white" ? "You play White" : "You play Black"}
+              aria-hidden
+            />
+            Puzzle #{puzzle.id}
+          </div>
+          <div className="board-panel__meta">
+            {/* Ratings live in their OWN group and never scroll: "my rating and
+                the puzzle's rating, side by side, always visible". Everything
+                that can be long (theme chips) goes in the sibling group below,
+                so it can wrap without ever pushing these two off-screen. */}
+            <span className="board-panel__ratings" data-testid="board-ratings">
+              {/* ONE pill for both ratings. Two separate pills cost ~70px of width
+                  in the row that also has to fit the theme chips; the pair reads
+                  fine merged because the puzzle's number is the loud one and yours
+                  is labelled and muted. */}
+              <span className="pill pill-neutral board-panel__rating-pill">
+                <span className="tabular" data-testid="puzzle-rating">{puzzle.rating}</span>
+                <span className="board-panel__rating-sep" aria-hidden>·</span>
+                {/* YOUR rating, so it is visible while solving on Training, All themes
+                    and Review alike — previously only the puzzle's rating showed, and
+                    your own was only on the tab header (which the board replaces). */}
+                <span className="board-panel__you" data-testid="user-rating">
+                  you&nbsp;<span className="tabular">{userRating}</span>
+                </span>
+              </span>
+              {/* ONLY the resolved summary stays here. The live "Move X of Y" pill
+                  was removed: the row under the board already prints "1 / 3", so it
+                  was duplicated information eating the width the tags needed. */}
+              {status !== "playing" && (
+                <span className="pill pill-info" data-testid="move-counter">
+                  {status === "correct" ? (
+                    <>✓ Solved &mdash; {solverTotal} move{solverTotal === 1 ? "" : "s"}</>
+                  ) : (
+                    <>Solution &mdash; {solverTotal} move{solverTotal === 1 ? "" : "s"}</>
+                  )}
+                </span>
+              )}
+            </span>
             {/* Themes — ALL of them, while solving and after, but only when the
-                TAGS switch is on. This is the group that wraps: it takes the full
-                width under the ratings and flows left-to-right, so nothing is
-                hidden behind a sideways scroll. */}
+                TAGS switch is on. This is the group that wraps: it starts on the
+                ratings row beside the rating pill and flows left-to-right, so
+                nothing is hidden behind a sideways scroll and it only costs a
+                row when it actually needs one. */}
             {showTags && (
               <span
                 className="board-panel__themes"

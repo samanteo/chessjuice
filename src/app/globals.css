@@ -528,6 +528,19 @@ body {
 }
 
 .board-panel__titles { min-width: 0; }
+/* The head's top line: the active angle on the left, the two switches on the
+   right. The switches live here rather than in the ratings row because this row
+   already exists and is always one line, so they cost zero height — while the
+   old stacked column cost ~29px and pushed the controls under the board below
+   the fold on a short phone. */
+.board-panel__topline {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  min-height: 22px;
+  margin-bottom: 0.2rem;
+}
 .board-panel__title {
   font-size: 1.02rem;
   font-weight: 700;
@@ -553,10 +566,9 @@ body {
   flex: 0 0 auto;
 }
 
-/* TAGS switch — the on/off pill in the head that shows or hides the theme chips.
-   Deliberately small: it sits at the right end of the ratings row (margin-left:
-   auto) so it never costs a row of its own. ON = green with the knob on the
-   right and the word "TAGS"; OFF = red with the knob on the left and "OFF". */
+/* TAGS / DOTS switches — the on/off pills in the head's top line. Deliberately
+   small. ON = green with the knob on the right and the feature's name; OFF = red
+   with the knob on the left and "OFF". */
 .tag-toggle {
   display: inline-flex;
   align-items: center;
@@ -576,27 +588,16 @@ body {
   transition: background 0.18s ease, border-color 0.18s ease;
   -webkit-tap-highlight-color: transparent;
 }
-/* The switch column: TAGS on top, DOTS under it, right-aligned in the meta row.
-   The left auto-margin lives on the WRAPPER (not on .tag-toggle) so the pair
-   moves together as one block and the ratings never get pushed off-screen.
-   STACKED ONLY ON PHONES. There the board is width-limited (390px wide beats a
-   taller chrome), so the extra row of switches costs nothing. On a wide screen
-   the board is HEIGHT-limited, so a second stacked switch row would shrink it —
-   the pair goes inline from sm: up and the meta row keeps its old height. */
+/* The switch pair: TAGS and DOTS SIDE BY SIDE, right-aligned in the top line.
+   Inline at every width — stacking them cost a row of height on phones (and the
+   board is width-limited there, so the row bought nothing) and shrank the board
+   on wide screens. */
 .board-panel__toggles {
-  margin-left: auto;
   display: inline-flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 0.25rem;
+  flex-direction: row;
+  align-items: center;
+  gap: 0.4rem;
   flex: 0 0 auto;
-}
-@media (min-width: 640px) {
-  .board-panel__toggles {
-    flex-direction: row;
-    align-items: center;
-    gap: 0.4rem;
-  }
 }
 .board-panel__toggles .tag-toggle { margin-left: 0; }
 .tag-toggle[data-on="true"] {
@@ -618,16 +619,28 @@ body {
 }
 .tag-toggle__label { line-height: 1; }
 .tag-toggle:focus-visible { outline: 2px solid var(--accent, #60a5fa); outline-offset: 2px; }
-/* Theme chips live in their own inline row so they can wrap as a group once the
-   solution is shown (all themes, not just the first three) without pushing the
-   rating pills around. */
+/* Theme chips wrap as a group once the solution is shown (all themes, not just
+   the first three) without pushing the rating pills around. They now START on
+   the ratings row instead of being forced onto a row of their own: they flow
+   beside the rating pill and wrap under it only when they run out of room. That
+   is free height whenever the chips fit. */
 .board-panel__themes {
   display: inline-flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 0.4rem;
   min-width: 0;
+  flex: 1 1 auto;
 }
+/* One pill for both ratings: "687 · you 926". The puzzle's number is the loud
+   one; yours is labelled and muted so the pair stays readable at a glance. */
+.board-panel__rating-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+.board-panel__rating-sep { opacity: 0.45; }
+.board-panel__you { color: var(--text-muted); font-weight: 600; }
 .board-panel__side {
   font-size: 0.78rem;
   font-weight: 600;

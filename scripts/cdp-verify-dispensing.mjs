@@ -150,8 +150,10 @@ ok(board.hasNext, "'Next puzzle' control present (board is interactive)");
 const bandCheck = await evalJs(`(() => {
   const s = JSON.parse(localStorage.getItem('puzzle_trainer_settings') || '{}');
   const info = document.body.innerText;
-  const m = info.match(/Rating\\s*\\n?\\s*(\\d{3,4})/) || info.match(/(\\d{3,4})/);
-  return { userRating: s.rating ?? null, servedRating: m ? Number(m[1]) : null };
+  // Read the puzzle's number from its own node: the head's pill is now
+  // "1429 · you 1500" and no longer contains the word "Rating".
+  const m = document.querySelector('[data-testid="puzzle-rating"]')?.innerText?.trim();
+  return { userRating: s.rating ?? null, servedRating: m ? Number(m) : null };
 })()`);
 console.log(`band check: ${JSON.stringify(bandCheck)}`);
 if (bandCheck.userRating != null && bandCheck.servedRating != null) {

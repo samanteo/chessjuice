@@ -63,15 +63,18 @@ ok(d0.present, "a DOTS switch is present in the board head");
 ok(d0.on === "true", "it starts ON");
 ok(d0.label === "DOTS", `the ON label reads its name like TAGS does ("${d0.label}")`);
 
-// The switch must sit BELOW the tags switch, same style/column.
+// The switch must sit SIDE BY SIDE with the tags switch, same style. It used to
+// stack below it, which cost ~24px of head height and pushed the controls under
+// the board below the fold on a short phone — so "below" is now a regression.
 const order = await ev(`(() => {
   const t = document.querySelector('[data-testid="tags-toggle"]');
   const d = document.querySelector('[data-testid="dots-toggle"]');
   if (!t || !d) return null;
   const tr = t.getBoundingClientRect(), dr = d.getBoundingClientRect();
-  return { below: dr.top > tr.top, sameCol: Math.abs(dr.right - tr.right) < 2, sameClass: d.className === t.className };
+  return { sameRow: Math.abs(dr.top - tr.top) < 2, rightOf: dr.left > tr.left, sameClass: d.className === t.className };
 })()`);
-ok(order && order.below, "DOTS sits below the TAGS switch");
+ok(order && order.sameRow, "DOTS sits SIDE BY SIDE with TAGS on one row");
+ok(order && order.rightOf, "DOTS is to the right of TAGS");
 ok(order && order.sameClass, "it uses the very same switch styling as TAGS");
 
 // Select a piece -> chessground draws the guiding dots.

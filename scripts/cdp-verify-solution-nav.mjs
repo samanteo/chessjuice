@@ -35,7 +35,10 @@ const snap = () => ev(`(() => {
     pill: pill?.innerText?.replace(/\\s+/g, ' ').trim() ?? null,
     themes: themes ? [...themes.querySelectorAll('.theme-chip')].map(e => e.innerText.trim()) : [],
     themesCount: themes?.getAttribute('data-count') ?? null,
-    toMovePill: document.querySelector('.pill-accent')?.innerText?.trim() ?? null,
+    // The "White/Black to move" pill was removed — the colour dot in the title
+    // row carries the solver's colour now. Assert the dot, not the pill.
+    toMoveText: /White to move|Black to move/i.test(document.body.innerText) ? 'PRESENT' : null,
+    colorDot: document.querySelector('[data-testid="solver-color-dot"]')?.dataset.color ?? null,
     canFwd: fwd ? !fwd.disabled : null,
     canBack: back ? !back.disabled : null,
     pieces: document.querySelectorAll('piece').length,
@@ -89,7 +92,8 @@ ok(afterSolution.fen === before.fen, "Solution does NOT move the board (it is al
 ok(afterSolution.canFwd === true, "forward is enabled so the line can be stepped through");
 ok(afterSolution.themes.length >= 3, `ALL themes shown on reveal (${afterSolution.themes.join(", ")})`);
 ok(afterSolution.themesCount === String(afterSolution.themes.length), `theme count attr matches (${afterSolution.themesCount})`);
-ok(afterSolution.toMovePill === null, "the 'to move' pill yields its slot on resolve");
+ok(afterSolution.toMoveText === null, "no 'to move' text anywhere — the colour dot carries the colour");
+ok(afterSolution.colorDot === "white" || afterSolution.colorDot === "black", `the colour dot states the solver's colour (${afterSolution.colorDot})`);
 ok(/Solution/i.test(afterSolution.pill ?? ""), `the pill reports the solution (${afterSolution.pill})`);
 
 // A SECOND tap must not append the line again / jump to the end.
