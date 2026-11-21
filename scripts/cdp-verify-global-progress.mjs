@@ -27,18 +27,18 @@ let pass = 0, fail = 0;
 const ok = (c, m) => { if (c) { pass++; console.log("  PASS", m); } else { fail++; console.log("  FAIL", m); } };
 
 const bar = () => ev(`(() => {
-  const el = document.querySelector('[data-testid="global-progress"]');
-  if (!el) return null;
-  const fill = el.querySelector('.pixel-bar__fill');
-  const track = el.querySelector('.pixel-bar');
+  const h = document.querySelector('[data-testid="header-progress"]');
+  const b = document.querySelector('[data-testid="global-progress-bar"]');
+  if (!h) return null;
+  const fill = b?.querySelector('.pixel-bar__fill');
   return {
-    label: el.querySelector('[data-testid="global-progress-label"]')?.innerText?.replace(/\\s+/g,' ').trim() ?? null,
-    done: Number(el.getAttribute('data-done')),
-    total: Number(el.getAttribute('data-total')),
-    fillPct: fill ? Math.round((fill.getBoundingClientRect().width / Math.max(1, track.getBoundingClientRect().width)) * 100) : null,
-    role: track?.getAttribute('role') ?? null,
-    now: track?.getAttribute('aria-valuenow') ?? null,
-    max: track?.getAttribute('aria-valuemax') ?? null,
+    label: document.querySelector('[data-testid="header-progress-label"]')?.innerText?.replace(/\\s+/g,' ').trim() ?? null,
+    done: Number(h.getAttribute('data-done')),
+    total: Number(h.getAttribute('data-total')),
+    fillPct: fill && b ? Math.round((fill.getBoundingClientRect().width / Math.max(1, b.getBoundingClientRect().width)) * 100) : null,
+    role: b?.getAttribute('role') ?? null,
+    now: b?.getAttribute('aria-valuenow') ?? null,
+    max: b?.getAttribute('aria-valuemax') ?? null,
   };
 })()`);
 const stored = () => ev(`(() => { try { return JSON.parse(localStorage.getItem('puzzle_trainer_blocks')); } catch { return null; } })()`);
@@ -46,6 +46,16 @@ const blockOf = async (bid) => (await stored())?.blocks?.find((b) => b.id === bi
 const go = async () => {
   await send("Page.navigate", { url: "http://localhost:3000/?cb=" + Date.now() });
   await sleep(4200);
+};
+// Seed storage from a page on the SAME ORIGIN that is NOT the app, then load the
+// app. Writing localStorage while the app is live races its own state writes —
+// that race is what made an earlier run read 100/300 instead of 0/150.
+const seedAndGo = async (js) => {
+  await send("Page.navigate", { url: "http://localhost:3000/api/state" });
+  await sleep(500);
+  await ev(`try{localStorage.setItem('puzzle_trainer_sync','off')}catch(e){}`);
+  await ev(js);
+  await go();
 };
 const expected = async () => {
   const s = await stored();
@@ -77,32 +87,34 @@ const seed = (themeIndex = 0, done = 0, credit = { themeIndex: 0, done: 0 }) => 
     themeIndex, done, credit,
   })),
 });
-await ev(`localStorage.clear();
+await seedAndGo(`localStorage.clear();
   localStorage.setItem('puzzle_trainer_sync','off');
   localStorage.setItem('puzzle_trainer_settings', JSON.stringify({ quickStartCount: 5 }));
   localStorage.setItem('puzzle_trainer_blocks', ${JSON.stringify(seed())});`);
-await go();
 
 // ---- 1. the bar sums all three blocks ---------------------------------------
 const b0 = await bar();
 console.log("  bar at zero:", JSON.stringify(b0));
-ok(b0 !== null, "the global bar is rendered on the Training tab");
+ok(b0 !== null, "the global progress numbers are in the header (visible on every tab)");
+ok(b0?.role === "progressbar", "the pixel bar itself is rendered on the Training tab");
 ok(b0?.label === "0 / 150", `it reads 0 / 150 for three blocks of 50 (${b0?.label})`);
 ok(b0?.done === 0 && b0?.total === 150, `its data attributes agree (${b0?.done}/${b0?.total})`);
 ok(b0?.fillPct === 0, `the fill is empty at zero (${b0?.fillPct}%)`);
 ok(b0?.role === "progressbar" && b0?.max === "150", `it is a real progressbar (role=${b0?.role}, max=${b0?.max})`);
 
 // ---- 2. mid-progress shows up ----------------------------------------------
-await setBlocks(`const b = s.blocks[0]; b.themeIndex = 5; b.done = 2; b.credit = { themeIndex: 5, done: 2 };`);
-await go();
+await seedAndGo(`const s = JSON.parse(localStorage.getItem('puzzle_trainer_blocks'));
+  const b = s.blocks[0]; b.themeIndex = 5; b.done = 2; b.credit = { themeIndex: 5, done: 2 };
+  localStorage.setItem('puzzle_trainer_blocks', JSON.stringify(s));`);
 const b1 = await bar();
 // 5 themes x 5 + 2 = 27 of 150 = 18%
 ok(b1?.label === "27 / 150", `mid-progress reads 27 / 150 (${b1?.label})`);
 ok(b1?.fillPct >= 17 && b1?.fillPct <= 19, `the fill is about 18% (${b1?.fillPct}%)`);
 
 // ---- 3. a finished block contributes its whole 50 ---------------------------
-await setBlocks(`const b = s.blocks[0]; b.themeIndex = 10; b.done = 0; b.credit = { themeIndex: 10, done: 0 };`);
-await go();
+await seedAndGo(`const s = JSON.parse(localStorage.getItem('puzzle_trainer_blocks'));
+  const b = s.blocks[0]; b.themeIndex = 10; b.done = 0; b.credit = { themeIndex: 10, done: 0 };
+  localStorage.setItem('puzzle_trainer_blocks', JSON.stringify(s));`);
 const b2 = await bar();
 ok(b2?.label === "50 / 150", `a finished block contributes all 50 (${b2?.label})`);
 
@@ -126,8 +138,9 @@ ok(afterRestart?.label === "50 / 150", `the global bar KEEPS the earned 50 after
 ok(restartedBlock?.credit?.themeIndex === 10, "the credit is still banked on the block");
 
 // ---- 5. finishing it a second time does NOT add twice -----------------------
-await setBlocks(`const b = s.blocks[0]; b.themeIndex = 10; b.done = 0; b.credit = { themeIndex: 10, done: 0 };`);
-await go();
+await seedAndGo(`const s = JSON.parse(localStorage.getItem('puzzle_trainer_blocks'));
+  const b = s.blocks[0]; b.themeIndex = 10; b.done = 0; b.credit = { themeIndex: 10, done: 0 };
+  localStorage.setItem('puzzle_trainer_blocks', JSON.stringify(s));`);
 const b3 = await bar();
 ok(b3?.label === "50 / 150", `finishing the same block twice still counts 50, not 100 (${b3?.label})`);
 
@@ -171,8 +184,9 @@ ok(afterRemove?.total === 150, `the total went back to 150 (${afterRemove?.total
 // ---- 8. removing a PASSED round does not skip the next one -----------------
 // Block 1 sits on round 4 (index 3). Removing round 1 (index 0) must leave it on
 // the SAME round, i.e. the index drops to 2.
-await setBlocks(`const b = s.blocks[1]; b.themeIndex = 3; b.done = 1; b.credit = { themeIndex: 3, done: 1 };`);
-await go();
+await seedAndGo(`const s = JSON.parse(localStorage.getItem('puzzle_trainer_blocks'));
+  const b = s.blocks[1]; b.themeIndex = 3; b.done = 1; b.credit = { themeIndex: 3, done: 1 };
+  localStorage.setItem('puzzle_trainer_blocks', JSON.stringify(s));`);
 await ev(`document.querySelector('[data-testid="block-select-b1"]')?.click()`);
 await sleep(700);
 await ev(`document.querySelector('[data-testid="unpin-fork"]')?.click()`);
@@ -189,16 +203,60 @@ ok(b4?.label === expShift.label, `the bar counts the shifted block's banked cred
 // ---- 9. deleting a block drops its contribution ----------------------------
 await ev(`document.querySelector('[data-testid="block-select-b2"]')?.click()`);
 await sleep(700);
+const beforeDelete = await stored();
+console.log("  blocks before delete:", beforeDelete.blocks.length, "themes:", beforeDelete.blocks.map((b) => b.themes.length));
+ok(beforeDelete.blocks.length === 3, `three blocks are still there before deleting (${beforeDelete.blocks.length})`);
+const expBefore = await expected();
 await ev(`document.querySelector('[data-testid="block-delete"]')?.click()`);
-await sleep(400);
+await sleep(500);
+const armed = await ev(`document.querySelector('[data-testid="block-delete"]')?.innerText?.trim()`);
+ok(/sure/i.test(armed ?? ""), `the delete arms first, so a stray tap cannot lose a block (${JSON.stringify(armed)})`);
 await ev(`document.querySelector('[data-testid="block-delete"]')?.click()`);
 await sleep(900);
 const b5 = await bar();
 const b5s = await stored();
-const expDelete = await expected();
-ok(b5s?.blocks?.length === 2, `the block was deleted (${b5s?.blocks?.length} left)`);
-ok(b5?.label === expDelete.label, `its puzzles left the total with it (${b5?.label} vs ${expDelete.label})`);
+console.log("  blocks after delete:", b5s.blocks.length, "label:", b5?.label);
+ok(b5s.blocks.length === 2, `the block was deleted (${b5s.blocks.length} left)`);
+ok(b5?.label === "66 / 95", `its 50 puzzles left with it (${b5?.label}, was ${expBefore.label})`);
 ok(b5?.total === 95, `the total dropped by exactly the deleted block's 50 (${b5?.total})`);
+
+// ---- 10. the header switch turns the whole display off and on --------------
+const sw = () => ev(`(() => {
+  const el = document.querySelector('[data-testid="header-progress"]');
+  if (!el) return null;
+  return {
+    on: el.getAttribute("data-on"),
+    label: document.querySelector('[data-testid="header-progress-label"]')?.innerText?.trim() ?? null,
+    barPresent: !!document.querySelector('[data-testid="global-progress-bar"]'),
+    bg: getComputedStyle(el).backgroundColor,
+    color: getComputedStyle(el).color,
+  };
+})()`);
+const s1 = await sw();
+console.log("  switch on:", JSON.stringify(s1));
+ok(s1?.on === "true", "the header progress is a switch, and it starts ON");
+ok(s1?.label === "66 / 95", `while ON it shows the running total (${s1?.label})`);
+ok(s1?.barPresent === true, "while ON the pixel bar is on the Training tab");
+
+await ev(`document.querySelector('[data-testid="header-progress"]')?.click()`);
+await sleep(900);
+const s2 = await sw();
+console.log("  switch off:", JSON.stringify(s2));
+ok(s2?.on === "false", "tapping it turns the switch OFF");
+ok(s2?.label === "OFF", `OFF shows the word OFF instead of a number (${JSON.stringify(s2?.label)})`);
+ok(s2?.barPresent === false, "OFF hides the pixel bar in the Training tab");
+ok((s2?.color || "") !== (s1?.color || ""), "the OFF state is a different colour from ON");
+
+await go();
+const s3 = await sw();
+ok(s3?.on === "false" && s3?.label === "OFF", "the switch remembers OFF across a reload");
+
+await ev(`document.querySelector('[data-testid="header-progress"]')?.click()`);
+await sleep(900);
+const s4 = await sw();
+console.log("  switch back on:", JSON.stringify(s4));
+ok(s4?.on === "true" && s4?.label === "66 / 95", "tapping again brings the number back");
+ok(s4?.barPresent === true, "and the pixel bar comes back with it");
 
 console.log(`\n=========================\n  PASS ${pass}   FAIL ${fail}\n=========================`);
 ws.close();

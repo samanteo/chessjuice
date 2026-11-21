@@ -95,6 +95,11 @@ export interface UserSettings {
   // up. The DOTS switch in the board head writes this. Default ON — it is how the
   // board has always behaved, so the default changes nothing for an existing user.
   showDots?: boolean;
+  // GLOBAL progress in the header: "32 / 400" across every training block. The
+  // header switch writes this. Default ON — the number is information, not a
+  // hint, so there is no reason to hide it from a new user. Optional because
+  // older saved state predates it.
+  showGlobalProgress?: boolean;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -113,6 +118,7 @@ export const DEFAULT_SETTINGS: Omit<UserSettings, 'userId' | 'createdAt' | 'upda
   puzzleTimerSeconds: 0,
   showTags: false,
   showDots: true,
+  showGlobalProgress: true,
 };
 
 // Puzzle attempt result. 'hard' = the user pressed HARD on a solved puzzle

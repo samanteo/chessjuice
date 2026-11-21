@@ -312,6 +312,10 @@ function PuzzleDashboardPageInner() {
   // value on every read — that is what makes it global: change it in Settings and
   // every block's total moves with it.
   const perTheme = sanitizeQuickStartCount(settings?.quickStartCount);
+  // GLOBAL progress shown in the HEADER: visible on every tab, so the number is
+  // always one glance away without switching to Training. Same maths as the bar
+  // in the Training tab — first-run credit per block, summed.
+  const headerProgress = globalProgress(blocks, perTheme);
 
   /** The theme label currently on the board (for the header). */
   const [activeTheme, setActiveTheme] = useState<string | null>(null);
@@ -1287,7 +1291,36 @@ function PuzzleDashboardPageInner() {
               </nav>
             </div>
 
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2 sm:gap-3">
+              {/* GLOBAL progress — an ON/OFF switch in the header, same shape as
+                  the TAGS/DOTS switches. ON shows the running total in green
+                  ("32 / 400"); OFF shows "OFF" and hides the pixel bar in the
+                  Training tab. Numbers only while ON: a bar here would cost a row. */}
+              <button
+                type="button"
+                onClick={() =>
+                  updateSettings({ showGlobalProgress: !(settings?.showGlobalProgress ?? true) })
+                }
+                className="tag-toggle header-progress-toggle"
+                data-on={(settings?.showGlobalProgress ?? true) ? "true" : "false"}
+                data-testid="header-progress"
+                data-done={headerProgress.done}
+                data-total={headerProgress.total}
+                title={
+                  (settings?.showGlobalProgress ?? true)
+                    ? "Global training progress — tap to hide"
+                    : "Global progress is hidden — tap to show"
+                }
+                aria-pressed={settings?.showGlobalProgress ?? true}
+              >
+                <span className="tag-toggle__knob" aria-hidden />
+                <span className="tag-toggle__label tabular-nums" data-testid="header-progress-label">
+                  {(settings?.showGlobalProgress ?? true)
+                    ? `${headerProgress.done} / ${headerProgress.total}`
+                    : "OFF"}
+                </span>
+              </button>
+
               {/* Due count badge */}
               {dueCount > 0 && (
                 <button
@@ -1583,18 +1616,20 @@ function TrainingTab({
           "0 / 150" for three blocks of 50. A block only ever contributes what it
           has EARNED (see blockCredit), so finishing one twice counts once and
           restarting a finished one does not empty the bar. */}
+      {(settings?.showGlobalProgress ?? true) && (
       <div className="mb-2" data-testid="global-progress" data-done={global.done} data-total={global.total}>
         <div className="flex items-center justify-between mb-1">
           <span className="text-[10px] font-semibold uppercase tracking-widest text-gray-500 dark:text-[#6b6a68]">
             Global training
           </span>
-          <span className="text-xs font-semibold tabular-nums" data-testid="global-progress-label">
-            {global.done} / {global.total}
-          </span>
+          {/* The NUMBER lives in the header (data-testid="header-progress-label")
+              so it stays visible on every tab; repeating it here would print the
+              same figure twice within 40px. */}
         </div>
         <div
           className="pixel-bar"
           role="progressbar"
+          data-testid="global-progress-bar"
           aria-valuemin={0}
           aria-valuemax={global.total}
           aria-valuenow={global.done}
@@ -1607,6 +1642,7 @@ function TrainingTab({
           />
         </div>
       </div>
+      )}
 
       {/* ---- Block row: up to 3 named blocks, each with its own memory ---- */}
       <div className="flex flex-wrap items-center gap-2 mb-2" data-testid="block-row">

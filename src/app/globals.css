@@ -1368,3 +1368,48 @@ body {
   background: #d8d5cc;
   border-color: #0d0d0c;
 }
+
+/* GLOBAL progress switch in the HEADER. Same shape as the board's TAGS/DOTS
+   switches, but the label is the running total, so it needs to be wider and
+   readable rather than tiny caps. ON = green text on a green-tinted pill;
+   OFF = red "OFF" on a red-tinted pill. */
+.header-progress-toggle {
+  margin-left: 0;
+  height: 26px;
+  padding: 0 0.55rem;
+  gap: 0.35rem;
+  font-size: 0.68rem;
+  letter-spacing: 0.02em;
+  border-radius: 999px;
+  /* FIXED WIDTH. The label changes length between "0 / 300" and "OFF", and the
+     header group is right-aligned — so without this the whole pill slid LEFT
+     when ON and RIGHT when OFF, changing the gap to the settings cog each time.
+     A fixed box keeps both states in exactly the same place. */
+  min-width: 88px;
+  justify-content: center;
+}
+.header-progress-toggle[data-on="true"] {
+  background: rgba(21, 128, 61, 0.16);
+  border-color: #22c55e;
+  color: #15803d;
+}
+.header-progress-toggle[data-on="false"] {
+  background: rgba(127, 29, 29, 0.16);
+  border-color: #ef4444;
+  color: #b91c1c;
+}
+.dark .header-progress-toggle[data-on="true"] {
+  background: rgba(34, 197, 94, 0.18);
+  color: #4ade80;
+}
+.dark .header-progress-toggle[data-on="false"] {
+  background: rgba(239, 68, 68, 0.18);
+  color: #f87171;
+}
+/* The knob is dark-on-light here, so it reads on the tinted pill. */
+.header-progress-toggle .tag-toggle__knob {
+  background: currentColor;
+  box-shadow: none;
+  width: 9px;
+  height: 9px;
+}
