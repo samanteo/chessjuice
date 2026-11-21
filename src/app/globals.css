@@ -760,6 +760,15 @@ body {
      let it WRAP so every theme is visible without horizontal scrolling. Height
      is content-driven on a phone now (the board is width-driven), so the extra
      row costs a little scroll, not board size. */
+  /* The titles row is nowrap on a phone so the head stays one line while
+     SOLVING. Once resolved there is no height to protect (the board is
+     width-driven), so let the row WRAP: the theme + puzzle id stay on line 1 and
+     the pills take line 2 across the full width. Without this the meta row is
+     squeezed into the space left beside the title and its chips stack in a
+     narrow column that scrolls sideways. */
+  .board-panel[data-resolved="true"] .board-panel__titles {
+    flex-wrap: wrap;
+  }
   .board-panel[data-resolved="true"] .board-panel__meta {
     flex: 1 1 100%;
     flex-wrap: wrap;
@@ -770,6 +779,7 @@ body {
   .board-panel[data-resolved="true"] .board-panel__themes {
     flex: 1 1 100%;
     flex-wrap: wrap;
+    row-gap: 0.3rem;
   }
 
   /* Skip + Hard side by side — two rows become one. The primary column is
