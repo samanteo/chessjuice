@@ -1,36 +1,26 @@
-/** Measure the header pill in BOTH states: does it stay put? */
+/** Header spacing: title end, pill box, cog box, screen edge. */
 import { WebSocket } from "ws";
 const targets = await (await fetch("http://127.0.0.1:9245/json/list")).json();
-const page = targets.find((t) => t.type === "page");
-const sock = new WebSocket(page.webSocketDebuggerUrl, { perMessageDeflate: false, maxPayload: 64 * 1024 * 1024 });
-const send = (() => {
-  let id = 0;
-  const pend = new Map();
-  sock.on("message", (raw) => {
-    const m = JSON.parse(raw.toString());
-    if (m.id && pend.has(m.id)) { pend.get(m.id)(m); pend.delete(m.id); }
-  });
-  return (method, params = {}) => new Promise((res) => { const i = ++id; pend.set(i, res); sock.send(JSON.stringify({ id: i, method, params })); });
-})();
-await new Promise((r) => sock.on("open", r));
-const ev = async (expr) => (await send("Runtime.evaluate", { expression: expr, returnByValue: true })).result.result.value;
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-await send("Emulation.setDeviceMetricsOverride", { width: 390, height: 844, deviceScaleFactor: 2, mobile: true });
-await send("Page.navigate", { url: "http://localhost:3000/" });
-await sleep(4000);
-const geo = () => ev(`(() => {
+const t = targets.find((x) => x.type === "page");
+const sock = new WebSocket(t.webSocketDebuggerUrl, { perMessageDeflate: false });
+await new Promise((r) => (sock.onmessage = r));
+const send = (method, params) => new Promise((res) => {
+  const id = Math.floor(Math.random() * 1e6);
+  const h = (raw) => { const m = JSON.parse(raw.data); if (m.id === id) { sock.removeEventListener("message", h); res(m.result); } };
+  sock.addEventListener("message", h);
+  sock.send(JSON.stringify({ id, method, params }));
+});
+await send("Emulation.setDeviceMetricsOverride", { width: 390, height: 844, deviceScaleFactor: 2, mobile: false });
+await send("Page.navigate", { url: "http://localhost:3000/?cb=" + Date.now() });
+await new Promise((r) => setTimeout(r, 4200));
+const r = await send("Runtime.evaluate", { returnByValue: true, expression: `(() => {
   const pill = document.querySelector('[data-testid="header-progress"]');
-  const gear = [...document.querySelectorAll('header button')].find((b) => b.textContent.trim() === '⚙️');
-  const title = document.querySelector('[data-testid="home-logo"]');
-  const p = pill.getBoundingClientRect(), g = gear.getBoundingClientRect(), t = title.getBoundingClientRect();
-  return JSON.stringify({ state: pill.getAttribute('data-on'), label: pill.innerText.trim(),
-    pill: { left: Math.round(p.left), right: Math.round(p.right), w: Math.round(p.width) },
-    gapTitle: Math.round(p.left - t.right), gapCog: Math.round(g.left - p.right) });
-})()`);
-console.log("ON :", await geo());
-await ev(`document.querySelector('[data-testid="header-progress"]').click()`);
-await sleep(700);
-console.log("OFF:", await geo());
-await ev(`document.querySelector('[data-testid="header-progress"]').click()`);
-await sleep(500);
+  const title = document.querySelector('h1');
+  const cog = document.querySelector('header button[aria-label], header [data-testid="settings"], header button:last-of-type');
+  const pb = pill.getBoundingClientRect(), tb = title.getBoundingClientRect(), cb = cog.getBoundingClientRect();
+  return JSON.stringify({ vw: innerWidth, titleEnd: Math.round(tb.right), pill: [Math.round(pb.left), Math.round(pb.right)],
+    cog: [Math.round(cb.left), Math.round(cb.right)], gapTitlePill: Math.round(pb.left - tb.right),
+    gapPillCog: Math.round(cb.left - pb.right), gapCogEdge: Math.round(innerWidth - cb.right) });
+})()` });
+console.log(r.result.value);
 sock.close();

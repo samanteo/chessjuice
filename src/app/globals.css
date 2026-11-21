@@ -1387,6 +1387,9 @@ body {
      A fixed box keeps both states in exactly the same place. */
   min-width: 88px;
   justify-content: center;
+  /* Nudge the pill toward the settings cog: the flex gap is 8px, so -4px lands
+     it 4px from the gear. Identical in both states, because the width is fixed. */
+  margin-right: -4px;
 }
 .header-progress-toggle[data-on="true"] {
   background: rgba(21, 128, 61, 0.16);

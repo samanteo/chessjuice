@@ -50,12 +50,17 @@ const go = async () => {
 // Seed storage from a page on the SAME ORIGIN that is NOT the app, then load the
 // app. Writing localStorage while the app is live races its own state writes —
 // that race is what made an earlier run read 100/300 instead of 0/150.
+// Seed storage and reload IN THE SAME EVALUATION. Anything slower races the
+// app's own writes: the app replaced the seed between setItem and the reload,
+// which silently measured the wrong world. Writing and reloading together means
+// no app code can run in between.
 const seedAndGo = async (js) => {
-  await send("Page.navigate", { url: "http://localhost:3000/api/state" });
-  await sleep(500);
-  await ev(`try{localStorage.setItem('puzzle_trainer_sync','off')}catch(e){}`);
-  await ev(js);
-  await go();
+  try {
+    await ev(`(() => { ${js} location.reload(); return true; })()`);
+  } catch {
+    /* the reload destroys the execution context — expected */
+  }
+  await sleep(4800);
 };
 const expected = async () => {
   const s = await stored();
@@ -224,12 +229,18 @@ ok(b5?.total === 95, `the total dropped by exactly the deleted block's 50 (${b5?
 const sw = () => ev(`(() => {
   const el = document.querySelector('[data-testid="header-progress"]');
   if (!el) return null;
+  const r = el.getBoundingClientRect();
+  const gear = [...document.querySelectorAll('header button')].find((b) => b.textContent.trim() === '⚙️');
+  const g = gear ? gear.getBoundingClientRect() : null;
   return {
     on: el.getAttribute("data-on"),
     label: document.querySelector('[data-testid="header-progress-label"]')?.innerText?.trim() ?? null,
     barPresent: !!document.querySelector('[data-testid="global-progress-bar"]'),
     bg: getComputedStyle(el).backgroundColor,
     color: getComputedStyle(el).color,
+    left: Math.round(r.left),
+    width: Math.round(r.width),
+    gapToGear: g ? Math.round(g.left - r.right) : null,
   };
 })()`);
 const s1 = await sw();
@@ -246,6 +257,12 @@ ok(s2?.on === "false", "tapping it turns the switch OFF");
 ok(s2?.label === "OFF", `OFF shows the word OFF instead of a number (${JSON.stringify(s2?.label)})`);
 ok(s2?.barPresent === false, "OFF hides the pixel bar in the Training tab");
 ok((s2?.color || "") !== (s1?.color || ""), "the OFF state is a different colour from ON");
+// The pill must NOT move when the label changes length: with a fixed width both
+// states occupy the same box, so the gap to the settings cog is identical.
+ok(s2?.left === s1?.left && s2?.width === s1?.width,
+   `both states sit in the same box (ON ${s1?.left}/${s1?.width}px, OFF ${s2?.left}/${s2?.width}px)`);
+ok(s2?.gapToGear === s1?.gapToGear,
+   `so the gap to the settings cog is the same either way (${s1?.gapToGear}px vs ${s2?.gapToGear}px)`);
 
 await go();
 const s3 = await sw();
