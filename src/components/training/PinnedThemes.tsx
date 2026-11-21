@@ -19,6 +19,11 @@ interface PinnedThemesProps {
   onGoToAllThemes: () => void;
   /** Persist a new order. Quick start walks the pins in exactly this order. */
   onReorder?: (themeIds: string[]) => void;
+  /**
+   * Name of the block whose themes these are. When set, the heading names it —
+   * the grid edits the SELECTED block, so it has to say which one that is.
+   */
+  blockName?: string;
 }
 
 /**
@@ -42,6 +47,7 @@ export function PinnedThemes({
   onOpenPicker,
   onGoToAllThemes,
   onReorder,
+  blockName,
 }: PinnedThemesProps) {
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [overIndex, setOverIndex] = useState<number | null>(null);
@@ -93,9 +99,13 @@ export function PinnedThemes({
     <section className="mb-8" data-testid="pinned-themes">
       <div className="flex items-center justify-between mb-4 gap-4 flex-wrap">
         <div>
-          <h2 className="text-xl font-bold text-gray-900 dark:text-white">Quick start</h2>
+          <h2 className="text-xl font-bold text-gray-900 dark:text-white">
+            {blockName ? `Themes in “${blockName}”` : "Quick start"}
+          </h2>
           <p className="text-sm text-gray-600 dark:text-gray-400">
-            Your pinned themes — one tap to start a puzzle.
+            {blockName
+              ? "The rounds this block trains, in order — one tap to play a theme now."
+              : "Your pinned themes — one tap to start a puzzle."}
           </p>
         </div>
         <button

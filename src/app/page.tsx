@@ -8,14 +8,14 @@ import { ThemeSelector } from "@/components/theme/ThemeSelector";
 import { ThemeProvider, useTheme } from "@/components/theme/ThemeProvider";
 import { PUZZLE_TIMER_OPTIONS } from "@/components/theme/themeConfig";
 import { usePuzzleStore, getBaseOpening } from "@/hooks/usePuzzleStore";
-import { usePinnedThemes } from "@/hooks/usePinnedThemes";
 import {
-  useQuickRunBlock,
-  quickRunPosition,
-  quickRunTotal,
+  useTrainingBlocks,
+  blockTotal,
+  blockPosition,
+  blockComplete,
   sanitizeQuickStartCount,
-  type QuickRun,
-} from "@/hooks/useQuickRunBlock";
+  type TrainingBlock,
+} from "@/hooks/useTrainingBlocks";
 import { PuzzleBoard } from "@/components/PuzzleBoard";
 import { RatingProgressChart } from "@/components/dashboard/RatingProgressChart";
 import { CalendarHeatmap } from "@/components/dashboard/CalendarHeatmap";
@@ -185,7 +185,41 @@ function PuzzleDashboardPageInner() {
   }, []);
 
   // Pinned ("quick pin") themes — persisted to localStorage.
-  const { pinned, pin, pinMany, unpin, unpinId, toggle, clear: unpinAll, reorder } = usePinnedThemes();
+  // ---- Training BLOCKS (up to 3, each with its own themes and its own place) --
+  // The selected block's rounds ARE the "pinned" list every training surface
+  // reads: the pinned grid, the picker and the run all act on that one block.
+  const {
+    blocks,
+    selected: block,
+    selectedId: blockId,
+    atCap: blocksAtCap,
+    select: selectBlock,
+    create: createBlock,
+    rename: renameBlock,
+    remove: removeBlock,
+    restart: restartBlock,
+    addTheme: addThemeToBlock,
+    addThemes: addThemesToBlock,
+    removeThemeAt: removeThemeAtInBlock,
+    removeThemeById: removeThemeInBlock,
+    clearThemes: clearBlockThemes,
+    reorderThemes: reorderBlockThemes,
+    setProgress: setBlockProgress,
+  } = useTrainingBlocks();
+
+  const pinned: string[] = block?.themes ?? [];
+  // Block-scoped equivalents of the old global pinned-theme handlers, so every
+  // existing call site (grid, picker) keeps working against the selected block.
+  const pin = useCallback((themeId: string) => { if (block) addThemeToBlock(block.id, themeId); }, [block, addThemeToBlock]);
+  /** In the picker, tapping a row ADDS a round — the same id may repeat. */
+  const toggle = pin;
+  const pinMany = useCallback((ids: string[]) => { if (block) addThemesToBlock(block.id, ids); }, [block, addThemesToBlock]);
+  /** Remove ONE round by position — duplicates mean position is the identity. */
+  const unpin = useCallback((index: number) => { if (block) removeThemeAtInBlock(block.id, index); }, [block, removeThemeAtInBlock]);
+  /** Remove every round of one id (the picker's Unpin control). */
+  const unpinId = useCallback((themeId: string) => { if (block) removeThemeInBlock(block.id, themeId); }, [block, removeThemeInBlock]);
+  const unpinAll = useCallback(() => { if (block) clearBlockThemes(block.id); }, [block, clearBlockThemes]);
+  const reorder = useCallback((ids: string[]) => { if (block) reorderBlockThemes(block.id, ids); }, [block, reorderBlockThemes]);
   const [showPicker, setShowPicker] = useState(false);
 
   // Apply theme filter from settings
@@ -266,15 +300,16 @@ function PuzzleDashboardPageInner() {
   // The run is driven from handlePuzzleComplete, so it advances only on a real
   // scored outcome — never on a back/forward review.
   //
-  // `quickRun` is the block running RIGHT NOW; `savedQuickRun` is the durable
-  // copy mirrored from `puzzle_trainer_quickrun`, which is what makes a run
-  // resumable after a tab close. `persistQuickRun` writes both.
-  const {
-    quickRun,
-    setQuickRun,
-    saved: savedQuickRun,
-    persist: persistQuickRun,
-  } = useQuickRunBlock();
+  // `quickRun` is the block on the board RIGHT NOW. Its position IS the block's
+  // own `themeIndex`/`done` in the blocks store — deliberately no second copy, so
+  // a block can never disagree with itself, and closing the tab is irrelevant
+  // because the position was already written per solved puzzle.
+  const [runningBlockId, setRunningBlockId] = useState<string | null>(null);
+  const quickRun: TrainingBlock | null = blocks.find((b) => b.id === runningBlockId) ?? null;
+  // The ONE global "puzzles per theme". Totals are computed from the current
+  // value on every read — that is what makes it global: change it in Settings and
+  // every block's total moves with it.
+  const perTheme = sanitizeQuickStartCount(settings?.quickStartCount);
 
   /** The theme label currently on the board (for the header). */
   const [activeTheme, setActiveTheme] = useState<string | null>(null);
@@ -524,66 +559,80 @@ function PuzzleDashboardPageInner() {
     [puzzles, settings, noteServed]
   );
 
-  // ---- Quick start run (defined after dispenseThemed so it can call it) ----
-  const startQuickRun = useCallback(() => {
-    const list: string[] = ((pinned && pinned.length > 0 ? pinned : selectedThemes) || []) as string[];
-    if (list.length === 0) return;
-    const count = sanitizeQuickStartCount(settings?.quickStartCount);
-    const run: QuickRun = { themes: list, themeIndex: 0, done: 0, count, savedAt: Date.now() };
-    setQuickRun(run);
-    // "Start new" is an explicit choice: it OVERWRITES any saved-but-unfinished
-    // block rather than resuming it. (Resuming is the separate Continue action.)
-    persistQuickRun(run);
-    setActiveTheme(list[0]);
-    dispenseThemed([list[0] as LichessTheme], difficulty, "training");
-  }, [pinned, selectedThemes, settings?.quickStartCount, difficulty, dispenseThemed, setQuickRun, persistQuickRun]);
-
-  /** Pick up the durable block where the user left off. */
-  const resumeQuickRun = useCallback(() => {
-    if (!savedQuickRun) return;
-    const run = savedQuickRun;
-    setQuickRun(run);
-    const theme = run.themes[run.themeIndex];
-    setActiveTheme(theme ?? null);
-    if (theme) dispenseThemed([theme as LichessTheme], difficulty, "training");
-  }, [savedQuickRun, setQuickRun, difficulty, dispenseThemed]);
-
-  const stopQuickRun = useCallback(() => {
-    // Pause, not abandon: the durable block stays in storage, so the button
-    // offers "Continue" instead of losing the user's place. Only finishing the
-    // run, or "Start new", clears the saved block.
-    setQuickRun(null);
-    setActiveTheme(null);
-  }, [setQuickRun]);
+  // ---- Training block run (defined after dispenseThemed so it can call it) ----
+  /** Serve the theme a block is currently on. False when the block has none. */
+  const serveBlockTheme = useCallback(
+    (b: TrainingBlock) => {
+      const theme = b.themes[b.themeIndex] ?? null;
+      setActiveTheme(theme);
+      if (!theme) return false;
+      dispenseThemed([theme as LichessTheme], difficulty, "training");
+      return true;
+    },
+    [difficulty, dispenseThemed]
+  );
 
   /**
-   * Advance the run by one finished puzzle. When the current block's quota is
-   * met, move to the next pinned theme; when the themes run out, end the run.
-   * Returns the theme id to dispense next, or null if the run is over.
+   * Start OR continue a block — the same operation, because a block's position is
+   * its own memory. "Start" trains a fresh block, "continue" picks up one with
+   * progress, and neither can touch another block.
+   */
+  const runBlock = useCallback(
+    (id: string) => {
+      const b = blocks.find((x) => x.id === id);
+      if (!b || b.themes.length === 0) return;
+      selectBlock(id);
+      setRunningBlockId(id);
+      serveBlockTheme(b);
+    },
+    [blocks, selectBlock, serveBlockTheme]
+  );
+
+  /** Restart ONE block from round 1, then train it. Other blocks are untouched. */
+  const restartAndRunBlock = useCallback(
+    (id: string) => {
+      const b = blocks.find((x) => x.id === id);
+      if (!b) return;
+      restartBlock(id);
+      setRunningBlockId(id);
+      if (b.themes.length > 0) serveBlockTheme({ ...b, themeIndex: 0, done: 0 });
+    },
+    [blocks, restartBlock, serveBlockTheme]
+  );
+
+  const stopQuickRun = useCallback(() => {
+    // Pause, not abandon: the block's position is already stored, so leaving the
+    // board only drops the "running" flag. Nothing is lost and no block clears.
+    setRunningBlockId(null);
+    setActiveTheme(null);
+  }, []);
+
+  /**
+   * Advance the running block by one finished puzzle. Writes the new position
+   * into THAT BLOCK ONLY. Returns the theme to serve next, or null when the block
+   * has just finished — a finished block is marked by pushing `themeIndex` past
+   * its last theme, which is what the row reads as "80 / 80 ✓".
    */
   const advanceQuickRun = useCallback((): string | null => {
     if (!quickRun) return null;
     const done = quickRun.done + 1;
-    if (done < quickRun.count) {
-      const next: QuickRun = { ...quickRun, done, savedAt: Date.now() };
-      setQuickRun(next);
-      persistQuickRun(next);
-      return quickRun.themes[quickRun.themeIndex];
+    if (done < perTheme) {
+      setBlockProgress(quickRun.id, { themeIndex: quickRun.themeIndex, done });
+      return quickRun.themes[quickRun.themeIndex] ?? null;
     }
     const nextIndex = quickRun.themeIndex + 1;
     if (nextIndex >= quickRun.themes.length) {
-      // Run complete — nothing left to resume.
-      setQuickRun(null);
+      // Block complete. Leave it in the row with its full total so it can be
+      // restarted deliberately instead of silently vanishing.
+      setBlockProgress(quickRun.id, { themeIndex: quickRun.themes.length, done: 0 });
+      setRunningBlockId(null);
       setActiveTheme(null);
-      persistQuickRun(null);
       return null;
     }
-    const next: QuickRun = { ...quickRun, themeIndex: nextIndex, done: 0, savedAt: Date.now() };
-    setQuickRun(next);
-    persistQuickRun(next);
+    setBlockProgress(quickRun.id, { themeIndex: nextIndex, done: 0 });
     setActiveTheme(quickRun.themes[nextIndex]);
     return quickRun.themes[nextIndex];
-  }, [quickRun, setQuickRun, persistQuickRun]);
+  }, [quickRun, perTheme, setBlockProgress]);
 
   // The real completion handler, assigned into the ref declared above so the
   // board's callback stays stable while this still sees the latest run state.
@@ -897,7 +946,8 @@ function PuzzleDashboardPageInner() {
       >
         <h2 className="text-lg font-bold text-gray-900 dark:text-[#e5e0d8] mb-1">Training Block</h2>
         <p className="text-sm text-gray-500 dark:text-[#8b8987] mb-4">
-          How many puzzles to serve from EACH pinned theme before moving on to the next.
+          How many puzzles from each <strong>theme</strong> before moving to the next theme. One
+          number for every block — change it and each block&apos;s total follows.
         </p>
         <div className="flex flex-wrap items-center gap-2">
           {[5, 10, 15, 20].map((n) => {
@@ -1308,11 +1358,18 @@ function PuzzleDashboardPageInner() {
             onOpenPicker={() => setShowPicker(true)}
             onGoToAllThemes={() => setActiveTab("allthemes")}
             onReorder={reorder}
+            blocks={blocks}
+            block={block}
+            blocksAtCap={blocksAtCap}
+            perTheme={perTheme}
             quickRun={quickRun}
-            savedQuickRun={savedQuickRun}
             activeTheme={activeTheme}
-            onQuickStart={startQuickRun}
-            onQuickStartResume={resumeQuickRun}
+            onSelectBlock={selectBlock}
+            onRunBlock={runBlock}
+            onRestartBlock={restartAndRunBlock}
+            onRenameBlock={renameBlock}
+            onCreateBlock={createBlock}
+            onRemoveBlock={removeBlock}
             onQuickStartStop={stopQuickRun}
             onStartDueReview={startDueReview}
           />
@@ -1450,11 +1507,18 @@ function TrainingTab({
   unpin,
   onOpenPicker,
   onGoToAllThemes,
+  blocks,
+  block,
+  blocksAtCap,
+  perTheme,
   quickRun,
-  savedQuickRun,
   activeTheme,
-  onQuickStart,
-  onQuickStartResume,
+  onSelectBlock,
+  onRunBlock,
+  onRestartBlock,
+  onRenameBlock,
+  onCreateBlock,
+  onRemoveBlock,
   onQuickStartStop,
   onStartDueReview,
   onReorder,
@@ -1471,54 +1535,178 @@ function TrainingTab({
   };
 
   const boardUpHere = boardContext === "training" && !!selectedPuzzle;
-  // How many puzzles a Training Block run serves per pinned theme. Validated on
-  // read so a bad stored value (a test harness once seeded 6) cannot render a
-  // nonsense block size.
-  const quickStartCount = sanitizeQuickStartCount(settings?.quickStartCount);
 
-  // A durable block we can pick up where the user left off. Only "resumable"
-  // when nothing is actively running — a RUNNING block shows the live counter.
-  const resumable = !quickRun && !!savedQuickRun;
-  // The global position / total of the whole run (not just the current block):
-  // with 16 pins and count 5 this reads "1 / 80" and ends at "80 / 80".
-  const livePos = quickRun ? quickRunPosition(quickRun) : 0;
-  const liveTotal = quickRun ? quickRunTotal(quickRun) : 0;
-  const resumePos = savedQuickRun ? quickRunPosition(savedQuickRun) : 0;
-  const resumeTotal = savedQuickRun ? quickRunTotal(savedQuickRun) : 0;
+  // Which block's chip menu is open (rename / delete / restart confirmation).
+  const [renamingBlock, setRenamingBlock] = useState<string | null>(null);
+  const [renameDraft, setRenameDraft] = useState("");
+  const [confirmDeleteBlock, setConfirmDeleteBlock] = useState<string | null>(null);
+  const [confirmRestartBlock, setConfirmRestartBlock] = useState<string | null>(null);
+
+  const selBlock = block ?? null;
+  const selTotal = selBlock ? blockTotal(selBlock, perTheme) : 0;
+  const selDone = selBlock ? blockComplete(selBlock) : false;
+  const selStarted = !!selBlock && (selBlock.themeIndex > 0 || selBlock.done > 0);
+  const selPos = selBlock ? Math.min(blockPosition(selBlock, perTheme), Math.max(1, selTotal)) : 0;
+
+  /** Chip label: its own progress, or a hint when it has no themes yet. */
+  const chipProgress = (b: any) => {
+    if (b.themes.length === 0) return "no themes";
+    const total = blockTotal(b, perTheme);
+    if (blockComplete(b)) return `${total}/${total} ✓`;
+    return `${blockPosition(b, perTheme)}/${total}`;
+  };
+
+  const primaryLabel = !selBlock
+    ? "▶ Start block"
+    : selBlock.themes.length === 0
+      ? "＋ Add themes to this block"
+      : selDone
+        ? `↺ Restart ${selBlock.name}`
+        : selStarted
+          ? `▶ Continue ${selPos} / ${selTotal}`
+          : `▶ Start ${selBlock.name}`;
 
   const quickStartRow = (
-    <div className="mb-4 flex flex-wrap items-center gap-4">
+    <div className="mb-4">
+      {/* ---- Block row: up to 3 named blocks, each with its own memory ---- */}
+      <div className="flex flex-wrap items-center gap-2 mb-2" data-testid="block-row">
+        {blocks.map((b: any) => {
+          const on = b.id === (selBlock?.id ?? null);
+          return (
+            <span
+              key={b.id}
+              className={`flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs ${
+                on
+                  ? "border-blue-400 bg-blue-50 dark:bg-blue-900/20 dark:border-blue-700"
+                  : "border-gray-300 dark:border-gray-600"
+              }`}
+              data-testid={`block-chip-${b.id}`}
+              data-selected={on ? "true" : "false"}
+              data-complete={blockComplete(b) ? "true" : "false"}
+            >
+              {renamingBlock === b.id ? (
+                <input
+                  autoFocus
+                  data-testid="block-rename-input"
+                  value={renameDraft}
+                  onChange={(e) => setRenameDraft(e.target.value)}
+                  onBlur={() => { onRenameBlock(b.id, renameDraft); setRenamingBlock(null); }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") { onRenameBlock(b.id, renameDraft); setRenamingBlock(null); }
+                    if (e.key === "Escape") setRenamingBlock(null);
+                  }}
+                  className="w-28 bg-transparent border-b border-blue-400 outline-none text-xs"
+                />
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => onSelectBlock(b.id)}
+                  className="font-semibold"
+                  data-testid={`block-select-${b.id}`}
+                  title="Show this block's themes and control it"
+                >
+                  {b.name}
+                </button>
+              )}
+              <span className="tabular-nums text-gray-500 dark:text-[#6b6a68]">{chipProgress(b)}</span>
+              {on && renamingBlock !== b.id && (
+                <>
+                  <button
+                    type="button"
+                    data-testid="block-rename"
+                    title="Rename this block"
+                    onClick={() => { setRenameDraft(b.name); setRenamingBlock(b.id); }}
+                    className="text-gray-500 hover:text-blue-600"
+                  >
+                    ✏️
+                  </button>
+                  {/* Delete arms on the first tap: losing a block's progress by
+                      accident is the one unrecoverable thing here. */}
+                  <button
+                    type="button"
+                    data-testid="block-delete"
+                    title={confirmDeleteBlock === b.id ? "Tap again to delete" : "Delete this block"}
+                    onClick={() => {
+                      if (confirmDeleteBlock === b.id) { onRemoveBlock(b.id); setConfirmDeleteBlock(null); }
+                      else { setConfirmDeleteBlock(b.id); setTimeout(() => setConfirmDeleteBlock((c: any) => (c === b.id ? null : c)), 4000); }
+                    }}
+                    className={confirmDeleteBlock === b.id ? "text-red-600 font-bold" : "text-gray-500 hover:text-red-600"}
+                  >
+                    {confirmDeleteBlock === b.id ? "sure?" : "×"}
+                  </button>
+                </>
+              )}
+            </span>
+          );
+        })}
+        {!blocksAtCap && (
+          <button
+            type="button"
+            data-testid="block-new"
+            onClick={() => onCreateBlock()}
+            className="rounded-full border border-dashed border-gray-400 px-3 py-1.5 text-xs font-semibold text-blue-600 dark:text-blue-400"
+          >
+            ＋ New
+          </button>
+        )}
+      </div>
+
+      {/* ---- The action for the SELECTED block ---- */}
+      <div className="flex flex-wrap items-center gap-4">
         <button
           data-testid="quickstart-button"
-          onClick={resumable ? onQuickStartResume : onQuickStart}
-          disabled={!resumable && pinned.length === 0}
+          onClick={() => {
+            if (!selBlock) return;
+            if (selDone) onRestartBlock(selBlock.id);
+            else onRunBlock(selBlock.id);
+          }}
+          disabled={!selBlock || selBlock.themes.length === 0}
           className={
             "flex items-center gap-2 px-6 py-3 rounded-lg text-white transition-colors font-medium " +
-            (!resumable && pinned.length === 0
+            (!selBlock || selBlock.themes.length === 0
               ? "bg-green-300 cursor-not-allowed"
               : "bg-green-700 hover:bg-green-800")
           }
         >
-          {resumable ? `▶ Continue ${resumePos} / ${resumeTotal}` : "▶ Start new"}
+          {primaryLabel}
         </button>
 
-        {/* Before starting: how big the run will be. The user could not tell how
-            many puzzles an auto-play would serve, so state it up front. Hidden
-            while a block is resumable — the button already reads "Continue N / M". */}
-        {!quickRun && !savedQuickRun && pinned.length > 0 && (
+        {/* Restart the selected block in place. Only offered while it has progress,
+            and it arms first — it wipes THIS block's position, nothing else. */}
+        {selBlock && selStarted && !selDone && (
+          <button
+            type="button"
+            data-testid="block-restart"
+            onClick={() => {
+              if (confirmRestartBlock === selBlock.id) { onRestartBlock(selBlock.id); setConfirmRestartBlock(null); }
+              else { setConfirmRestartBlock(selBlock.id); setTimeout(() => setConfirmRestartBlock((c: any) => (c === selBlock.id ? null : c)), 4000); }
+            }}
+            className={`text-xs rounded-lg border px-3 py-2 ${
+              confirmRestartBlock === selBlock.id
+                ? "border-red-400 text-red-600 font-semibold"
+                : "border-gray-300 dark:border-gray-600 text-gray-500 hover:text-gray-800 dark:hover:text-gray-200"
+            }`}
+          >
+            {confirmRestartBlock === selBlock.id ? "tap again to restart" : `↺ Restart ${selBlock.name}`}
+          </button>
+        )}
+
+        {/* Before starting: how big the run will be, and which block it is. */}
+        {selBlock && selBlock.themes.length > 0 && !quickRun && !selDone && (
           <span className="text-xs text-gray-400 dark:text-[#6b6a68] tabular-nums" data-testid="quickrun-plan">
-            {pinned.length} theme{pinned.length === 1 ? "" : "s"} × {quickStartCount} ={" "}
-            {pinned.length * quickStartCount} puzzles
+            {selBlock.themes.length} theme{selBlock.themes.length === 1 ? "" : "s"} × {perTheme} ={" "}
+            {selTotal} puzzles · {selBlock.name}
           </span>
         )}
 
         {quickRun && (
           <div className="flex items-center gap-3 flex-wrap" data-testid="quickrun-status">
             <span className="text-sm font-semibold text-gray-800 dark:text-[#e5e0d8] tabular-nums" data-testid="quickrun-counter">
-              {livePos} / {liveTotal}
+              {Math.min(blockPosition(quickRun, perTheme), Math.max(1, blockTotal(quickRun, perTheme)))} /{" "}
+              {blockTotal(quickRun, perTheme)}
             </span>
             <span className="text-xs text-gray-400 dark:text-[#6b6a68] tabular-nums">
-              theme {quickRun.themeIndex + 1} of {quickRun.themes.length}
+              {quickRun.name} · theme {quickRun.themeIndex + 1} of {quickRun.themes.length}
             </span>
             <button
               data-testid="quickrun-stop"
@@ -1529,6 +1717,7 @@ function TrainingTab({
             </button>
           </div>
         )}
+      </div>
     </div>
   );
 
@@ -1599,6 +1788,7 @@ function TrainingTab({
       {/* Pinned themes — the quick-launch grid */}
       <PinnedThemes
         pinned={pinned}
+        blockName={block?.name}
         themeCounts={themeCounts}
         openingCounts={openingCounts}
         onPlay={startTheme}

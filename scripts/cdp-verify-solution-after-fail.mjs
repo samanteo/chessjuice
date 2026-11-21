@@ -48,6 +48,13 @@ await send("Page.addScriptToEvaluateOnNewDocument", { source: `try{localStorage.
 await send("Emulation.setDeviceMetricsOverride", { width: 390, height: 844, deviceScaleFactor: 2, mobile: true });
 await send("Page.navigate", { url: "http://localhost:3000/" });
 await sleep(3500);
+// Deterministic themes: this test starts a puzzle from a theme card in the pinned
+// grid, so the grid must have themes. Clearing the block list makes the pins
+// below seed Block 1 through the migration, instead of inheriting whatever the
+// previous test in this browser profile left behind.
+await ev(`localStorage.clear(); localStorage.setItem('puzzle_trainer_sync','off'); localStorage.setItem('puzzle_trainer_pinned_themes', JSON.stringify(["fork","pin"]))`);
+await send("Page.navigate", { url: "http://localhost:3000/?cb=" + Date.now() });
+await sleep(4500);
 
 // Start a puzzle and skip until a multi-move one is served.
 const started = await ev(`(() => { const b = [...document.querySelectorAll('button')].find(x => /Play/i.test(x.innerText)); if (b) { b.click(); return true; } return false; })()`);
