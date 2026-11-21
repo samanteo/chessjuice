@@ -32,6 +32,18 @@ const click = async (x, y) => {
 const geo = () => ev(`(() => { const b = document.querySelector('cg-board'); const r = b.getBoundingClientRect(); const w = b.closest('.cg-wrap'); return { x: r.x, y: r.y, w: r.width, orient: (w?.className||'').includes('black') ? 'black' : 'white' }; })()`);
 const xy = (g, sq) => { const f = sq.charCodeAt(0) - 97, rk = Number(sq[1]), s = g.w / 8;
   return { x: g.x + (g.orient === 'black' ? 7 - f : f) * s + s / 2, y: g.y + (g.orient === 'black' ? rk - 1 : 8 - rk) * s + s / 2 }; };
+// Poll until a condition holds. Fixed sleeps raced the renderer: the marker
+// count was read before chessground painted the dots, so this test failed at
+// random (2 fails one run, 1 the next, 0 the next) on an app that was correct.
+const waitFor = async (fn, { timeout = 3000, step = 100 } = {}) => {
+  const t0 = Date.now();
+  while (Date.now() - t0 < timeout) {
+    if (await fn()) return true;
+    await sleep(step);
+  }
+  return false;
+};
+
 // The rendered markers: chessground stamps <square class="move-dest"> for plain
 // moves and adds `oc` when the target holds a piece (capture). The wrapper also
 // mirrors the resolved flag on data-dests.
@@ -43,7 +55,12 @@ await send("Page.addScriptToEvaluateOnNewDocument", { source: "try{localStorage.
 await send("Emulation.setDeviceMetricsOverride", { width: 390, height: 844, deviceScaleFactor: 2, mobile: true });
 await send("Page.navigate", { url: "http://localhost:3000/" });
 await sleep(3500);
-await ev(`localStorage.clear(); localStorage.setItem('puzzle_trainer_sync','off'); localStorage.setItem('puzzle_trainer_pinned_themes', JSON.stringify(["fork"]));`);
+// Themes now live in the BLOCKS store; the old `pinned_themes` key is retired and
+// seeds nothing, so the app came up with an empty block and no puzzle to start.
+await ev(`localStorage.clear(); localStorage.setItem('puzzle_trainer_sync','off');
+  localStorage.setItem('puzzle_trainer_blocks', JSON.stringify({ selected: 'b1', blocks: [
+    { id: 'b1', name: 'Block 1', themes: ['fork'], themeIndex: 0, done: 0, credit: { themeIndex: 0, done: 0 } }
+  ] }));`);
 await send("Page.navigate", { url: "http://localhost:3000/" });
 await sleep(4500);
 
@@ -78,17 +95,55 @@ ok(order && order.rightOf, "DOTS is to the right of TAGS");
 ok(order && order.sameClass, "it uses the very same switch styling as TAGS");
 
 // Select a piece -> chessground draws the guiding dots.
-const g = await geo();
-const a = xy(g, from);
-await click(a.x, a.y);
-await sleep(700);
+// The move list's index [1] is NOT reliably the side to move on every served
+// puzzle (some positions hand the solver move 0), so clicking that square could
+// land on an empty square or on the opponent's piece and draw nothing. The
+// feature under test is "a selected piece shows its dots", so try the parsed
+// square first and then fall back to the pieces actually on the board.
+const selectPiece = async () => {
+  const g = await geo();
+  const a = xy(g, from);
+  await click(a.x, a.y);
+  if (await waitFor(async () => (await markers()) > 0, { timeout: 900 })) return true;
+  const spots = await ev(`(() => {
+    const b = document.querySelector('cg-board'); const r = b.getBoundingClientRect(); const cell = r.width / 8;
+    return [...document.querySelectorAll('cg-board piece')].slice(0, 8).map(p => {
+      const pr = p.getBoundingClientRect();
+      return { x: Math.round(pr.x + cell / 2), y: Math.round(pr.y + cell / 2) };
+    });
+  })()`);
+  for (const s of spots || []) {
+    await click(s.x, s.y);
+    if (await waitFor(async () => (await markers()) > 0, { timeout: 700 })) return true;
+  }
+  return false;
+};
+await selectPiece();
 const withDots = await markers();
 console.log(`  markers with dots ON: ${withDots}`);
+if (withDots === 0) {
+  // Diagnostics: a zero here means the click never reached a piece. Dump what
+  // the board looked like so the next failure is not a guessing game.
+  const diag = await ev(`(() => {
+    const b = document.querySelector('cg-board');
+    if (!b) return { noBoard: true, text: document.body.innerText.slice(0, 160) };
+    const r = b.getBoundingClientRect();
+    const cx = Math.round(r.x + r.width / 2), cy = Math.round(r.y + r.height / 2);
+    const el = document.elementFromPoint(cx, cy);
+    return { rect: { x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width), h: Math.round(r.height) },
+      scrollY: window.scrollY, vh: innerHeight, vw: innerWidth,
+      at: el ? el.tagName + '.' + el.className : null,
+      pieces: document.querySelectorAll('cg-board piece').length,
+      dots: document.querySelector('[data-testid="dots-toggle"]')?.getAttribute('data-on'),
+      dests: document.querySelector('.cg-wrap')?.getAttribute('data-dests') };
+  })()`);
+  console.log("  DIAG " + JSON.stringify(diag));
+}
 ok(withDots > 0, "selecting a piece draws its legal-move dots");
 
 // Switch the dots OFF while the piece is still selected: they must vanish live.
 await ev(`document.querySelector('[data-testid="dots-toggle"]')?.click()`);
-await sleep(700);
+await waitFor(async () => (await markers()) === 0);
 const offState = await dotsState();
 const withoutDots = await markers();
 console.log(`  markers with dots OFF: ${withoutDots} (switch says ${offState.label})`);
@@ -115,7 +170,7 @@ const p2 = await (await fetch(`http://localhost:3000/api/puzzle?id=${pid2}`)).js
 const mv2 = (p2.moves || "").split(" ").filter(Boolean);
 const a2 = xy(g2, mv2[1].slice(0, 2));
 await click(a2.x, a2.y);
-await sleep(800);
+await waitFor(async () => (await markers()) > 0);
 const back = await markers();
 const backFlag = await flag();
 console.log(`  markers after switching back ON: ${back} (data-dests=${backFlag})`);

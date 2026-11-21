@@ -65,7 +65,12 @@ await send("Emulation.setDeviceMetricsOverride", { width: 390, height: 844, devi
 await send("Page.navigate", { url: "http://localhost:3000/" });
 await sleep(3500);
 // Pin one theme so the dashboard has a Play button to start from.
-await ev(`localStorage.clear(); localStorage.setItem('puzzle_trainer_sync','off'); localStorage.setItem('puzzle_trainer_pinned_themes', JSON.stringify(["fork"]));`);
+// Themes live in the BLOCKS store now — the retired `pinned_themes` key seeds
+// nothing and leaves an empty block, so no puzzle ever starts.
+await ev(`localStorage.clear(); localStorage.setItem('puzzle_trainer_sync','off');
+  localStorage.setItem('puzzle_trainer_blocks', JSON.stringify({ selected: 'b1', blocks: [
+    { id: 'b1', name: 'Block 1', themes: ['fork'], themeIndex: 0, done: 0, credit: { themeIndex: 0, done: 0 } }
+  ] }));`);
 await send("Page.navigate", { url: "http://localhost:3000/" });
 await sleep(4000);
 

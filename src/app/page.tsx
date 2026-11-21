@@ -1291,7 +1291,11 @@ function PuzzleDashboardPageInner() {
               </nav>
             </div>
 
-            <div className="flex items-center gap-2 sm:gap-3">
+            {/* Its OWN flex child of the space-between row, so the header centres
+                it between the branding and the settings cog — the gap on its left
+                matches the gap on its right. It used to live inside the right
+                group, which pinned it against the title. */}
+            <div className="flex items-center">
               {/* GLOBAL progress — an ON/OFF switch in the header, same shape as
                   the TAGS/DOTS switches. ON shows the running total in green
                   ("32 / 400"); OFF shows "OFF" and hides the pixel bar in the
@@ -1320,8 +1324,15 @@ function PuzzleDashboardPageInner() {
                     : "OFF"}
                 </span>
               </button>
+            </div>
 
-              {/* Due count badge */}
+            <div className="flex items-center gap-2 sm:gap-3">
+              {/* Due count badge — DESKTOP ONLY. On a phone the header row only
+                  has room for the title, the progress pill and the cog, and a
+                  badge here steals ~93px from the span the pill is centred in:
+                  the pill could only reach x=240 instead of the true middle of
+                  the title's "R" and the cog (x=272 at 430px wide). The count
+                  moves to the Review tab on phones (see the mobile nav below). */}
               {dueCount > 0 && (
                 <button
                   onClick={() => {
@@ -1330,7 +1341,7 @@ function PuzzleDashboardPageInner() {
                     // whichever bucket actually holds the actionable puzzles.
                     setActiveQueue(queueCounts.learning > 0 ? "learning" : "due");
                   }}
-                  className="relative px-3 py-1.5 bg-red-50 dark:bg-red-900/30 text-red-700 dark:text-red-400 rounded-lg text-sm font-medium hover:bg-red-100 dark:hover:bg-red-900/50 transition-colors"
+                  className="relative hidden sm:inline-flex items-center px-3 py-1.5 bg-red-50 dark:bg-red-900/30 text-red-700 dark:text-red-400 rounded-lg text-sm font-medium hover:bg-red-100 dark:hover:bg-red-900/50 transition-colors"
                 >
                   ⏰ {dueCount} Due
                 </button>
@@ -1362,7 +1373,19 @@ function PuzzleDashboardPageInner() {
                   : "text-gray-600 dark:text-gray-300"
               }`}
             >
-              <span aria-hidden className="text-base leading-none">{tab.icon}</span>
+              <span aria-hidden className="relative text-base leading-none">
+                {tab.icon}
+                {/* The header's Due badge is desktop-only, so the count lives
+                    here on phones — same number, same tap target. */}
+                {tab.id === "mistakes" && dueCount > 0 && (
+                  <span
+                    data-testid="review-due-count"
+                    className="absolute -top-1.5 -right-3 min-w-[15px] px-1 rounded-full bg-red-500 text-white text-[9px] font-bold leading-[15px] text-center tabular-nums"
+                  >
+                    {dueCount > 99 ? "99+" : dueCount}
+                  </span>
+                )}
+              </span>
               <span className="text-[10px] font-medium leading-tight truncate max-w-full px-0.5">
                 {tab.label}
               </span>

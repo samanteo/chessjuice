@@ -52,7 +52,12 @@ await sleep(3500);
 // grid, so the grid must have themes. Clearing the block list makes the pins
 // below seed Block 1 through the migration, instead of inheriting whatever the
 // previous test in this browser profile left behind.
-await ev(`localStorage.clear(); localStorage.setItem('puzzle_trainer_sync','off'); localStorage.setItem('puzzle_trainer_pinned_themes', JSON.stringify(["fork","pin"]))`);
+// Themes live in the BLOCKS store now — the retired `pinned_themes` key seeds
+// nothing and leaves an empty block, so no puzzle ever starts.
+await ev(`localStorage.clear(); localStorage.setItem('puzzle_trainer_sync','off');
+  localStorage.setItem('puzzle_trainer_blocks', JSON.stringify({ selected: 'b1', blocks: [
+    { id: 'b1', name: 'Block 1', themes: ['fork','pin'], themeIndex: 0, done: 0, credit: { themeIndex: 0, done: 0 } }
+  ] }))`);
 await send("Page.navigate", { url: "http://localhost:3000/?cb=" + Date.now() });
 await sleep(4500);
 
