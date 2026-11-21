@@ -182,6 +182,31 @@ await sleep(1200);
 const c7 = await chips();
 ok(c7.length === 1 && c7[0].id === b1, `only the deleted block went away (${c7.length} left)`);
 
+// ---- 9. THE COUNTER IS GLOBAL: it counts ACROSS a round boundary -----------
+// The retired per-block counter reset to "1 / 5" at every round. With 2 rounds of
+// 5, finishing round 1's last puzzle must read 6 — not 1.
+await ev(`localStorage.setItem('puzzle_trainer_blocks', JSON.stringify({ selected: 'blk_edge', blocks: [
+  { id: 'blk_edge', name: 'Boundary', themes: ['fork','pin'], themeIndex: 0, done: 4 }
+]}))`);
+await go();
+const beforeEdge = seg((await chips()).find((c) => c.id === "blk_edge")?.text);
+ok(beforeEdge && beforeEdge[1] === "5" && beforeEdge[2] === "10", `one puzzle from the boundary (${(await chips())[0]?.text})`);
+await ev(`document.querySelector('[data-testid="block-select-blk_edge"]')?.click()`);
+await sleep(800);
+await ev(`document.querySelector('[data-testid="quickstart-button"]')?.click()`);
+await sleep(4000);
+const liveBefore = await ev(`(document.querySelector('[data-testid="quickrun-counter"]')||{}).innerText?.trim() ?? null`);
+ok(liveBefore === "5 / 10", `the live counter agrees before the boundary (${liveBefore})`);
+await ev(`document.querySelector('[data-testid="solution-button"]')?.click()`);
+await sleep(1500);
+await ev(`document.querySelector('[data-testid="next-button"]')?.click()`);
+await sleep(4000);
+const liveAfter = await ev(`(document.querySelector('[data-testid="quickrun-counter"]')||{}).innerText?.trim() ?? null`);
+const chipAfter = seg((await chips()).find((c) => c.id === "blk_edge")?.text);
+console.log("  at the boundary:", liveBefore, "->", liveAfter, "| chip:", chipAfter && chipAfter[0] + "/" + chipAfter[1]);
+ok(liveAfter === "6 / 10", `it counts ACROSS the round boundary instead of resetting to 1 (${liveAfter})`);
+ok(chipAfter && chipAfter[1] === "6", `and the block's own progress agrees (${chipAfter && chipAfter[0] + "/" + chipAfter[1]})`);
+
 console.log(`\n=========================\n  PASS ${pass}   FAIL ${fail}\n=========================`);
 ws.close();
 process.exit(fail ? 1 : 0);
