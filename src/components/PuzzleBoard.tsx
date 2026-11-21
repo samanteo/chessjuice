@@ -228,13 +228,19 @@ export function PuzzleBoard({
   // Used by BOTH "show solution" and a wrong/timeout finish, so every losing
   // outcome leaves the full line on the board, step-through-able with the ◀ ▶
   // controls (each position is appended to `history`).
-  const playOutRemaining = useCallback(() => {
+  // `landAtStart` = the user explicitly asked for the SOLUTION (not a plain
+  // failure). Solution always rewinds to the FIRST position of the line, so you
+  // watch it from move 1. A failure without that request stays on the position
+  // where the solver actually stood.
+  const playOutRemaining = useCallback((landAtStart = false) => {
     // Idempotent: if the line is already on the board, just walk the view back to
     // its start. Re-appending would duplicate every position in `history` and
     // drop the counter on the final move — the "solution starts at the last
     // move" report.
     if (playedOutRef.current) {
-      setScrubIndex(lineStartRef.current);
+      // history[0] is the position BEFORE the opponent's setup move; history[1]
+      // is the puzzle as the solver first saw it. That is "move 1".
+      setScrubIndex(landAtStart ? 1 : lineStartRef.current);
       return;
     }
 
@@ -270,7 +276,9 @@ export function PuzzleBoard({
       // solution began; now ◀ ▶ walks FORWARD through it from the beginning.
       // (The live position stays the true end — `view` is untouched and
       // scrubbing is purely visual, so nothing is scored differently.)
-      setScrubIndex(startIdx);
+      // An explicit Solution request goes to move 1, even if the solver had
+      // already got two moves in before failing.
+      setScrubIndex(landAtStart ? 1 : startIdx);
     } else {
       setView({ fen: g.fen(), lastMove: last });
       setScrubIndex(null);
@@ -634,8 +642,10 @@ export function PuzzleBoard({
   const handleSolution = useCallback(() => {
     setShowSolution(true);
     // Play out the remaining line; every position lands in `history` so the whole
-    // solution can be stepped through with ◀ ▶.
-    playOutRemaining();
+    // solution can be stepped through with ◀ ▶. `true` = land on move 1: a
+    // solver who got 2 moves in and then failed used to be left staring at the
+    // end of the line when they asked for the solution.
+    playOutRemaining(true);
     setStatus("wrong");
     setFeedback("Puzzle failed");
     const attempt: PuzzleAttempt = {
