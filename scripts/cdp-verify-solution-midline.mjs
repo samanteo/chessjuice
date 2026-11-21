@@ -166,7 +166,12 @@ const wrong = (() => {
   return fromSame || any;
 })();
 if (!wrong) { console.log("no legal wrong move available"); ws.close(); process.exit(2); }
-const w1 = xy(g, wrong.from), w2 = xy(g, wrong.to);
+// Use the geometry read AFTER the skip loop (g2). `g` was read before skipping,
+// and a skip changes the puzzle's theme count, which changes the head height and
+// therefore the board size — stale geometry lands the click on the wrong squares,
+// the move is rejected as illegal, and no failure is ever recorded. That is the
+// only reason this test failed in-suite but passed standalone.
+const w1 = xy(g2, wrong.from), w2 = xy(g2, wrong.to);
 // The click can land while the board is still settling, in which case it is
 // rejected as illegal and NO failure is recorded — the board then looks
 // unchanged (same FEN) and ▶ stays disabled, which read as a false regression.
