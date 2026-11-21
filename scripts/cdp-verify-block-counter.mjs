@@ -53,6 +53,10 @@ await send("Page.addScriptToEvaluateOnNewDocument", {
       localStorage.setItem('__hv_seeded','1');
       localStorage.setItem('puzzle_trainer_pinned_themes', ${JSON.stringify(JSON.stringify(pins))});
       localStorage.setItem('puzzle_trainer_settings', JSON.stringify({ rating: ${realRating}, quickStartCount: 5 }));
+      // Themes now live in per-block storage. Clearing the blocks key (and the
+      // retired run key) makes the pins above seed Block 1 through the migration,
+      // starting at round 1 so the counter assertions below are exact.
+      localStorage.removeItem('puzzle_trainer_blocks');
       localStorage.removeItem('puzzle_trainer_quickrun');
     }
   `,
@@ -61,16 +65,20 @@ await send("Page.addScriptToEvaluateOnNewDocument", {
 const btn = () => ev(`(document.querySelector('[data-testid="quickstart-button"]')||{}).innerText?.trim() ?? null`);
 const counter = () => ev(`(document.querySelector('[data-testid="quickrun-counter"]')||{}).innerText?.trim() ?? null`);
 const plan = () => ev(`(document.querySelector('[data-testid="quickrun-plan"]')||{}).innerText?.replace(/\\s+/g,' ').trim() ?? null`);
-const stored = () => ev(`localStorage.getItem('puzzle_trainer_quickrun')`);
+const stored = () => ev(`(() => { try {
+  const s = JSON.parse(localStorage.getItem('puzzle_trainer_blocks'));
+  const b = s.blocks.find((x) => x.id === s.selected) || s.blocks[0];
+  return JSON.stringify(b);
+} catch { return null; } })()`);
 
 await send("Page.navigate", { url: "http://localhost:3000/?hv=" + Date.now() });
 await sleep(14000);
 await ev(`document.querySelector('[data-testid="tab-training"]')?.click()`);
 await sleep(2000);
 
-// ---- ITEM 5: no saved block -> "Start new" ---------------------------------
+// ---- ITEM 5: nothing running -> the button offers to START the selected block
 const label0 = await btn();
-ok(/Start new/i.test(label0 ?? ""), `ITEM 5: with no block the button reads "Start new" (got ${JSON.stringify(label0)})`);
+ok(/Start/i.test(label0 ?? ""), `ITEM 5: with nothing running the button offers a start (got ${JSON.stringify(label0)})`);
 
 // ---- ITEM 2: the plan line --------------------------------------------------
 const plan0 = await plan();
@@ -102,8 +110,10 @@ ok(seen.filter(Boolean).every((s) => /^\d+ \/ 80$/.test(s)),
 const raw1 = await stored();
 ok(!!raw1, `ITEM 3: advancing wrote the block to localStorage (${String(raw1).slice(0, 90)})`);
 let parsed = null; try { parsed = JSON.parse(raw1); } catch { /* ignore */ }
-ok(parsed && typeof parsed.themeIndex === "number" && typeof parsed.done === "number" && parsed.count === 5,
-   `ITEM 3: the stored block carries themeIndex/done/count (${JSON.stringify(parsed && { t: parsed.themeIndex, d: parsed.done, c: parsed.count, n: parsed.themes?.length })})`);
+// `count` (puzzles per theme) is no longer part of the block: it is the single
+// global setting, read live. The block keeps only its themes and its position.
+ok(parsed && typeof parsed.themeIndex === "number" && typeof parsed.done === "number",
+   `ITEM 3: the stored block carries themeIndex/done (${JSON.stringify(parsed && { t: parsed.themeIndex, d: parsed.done, n: parsed.themes?.length })})`);
 ok(parsed && Array.isArray(parsed.themes) && parsed.themes.length === 16,
    `ITEM 3: stored block keeps all 16 ordered theme ids (got ${parsed?.themes?.length})`);
 
@@ -113,7 +123,7 @@ await sleep(14000);
 await ev(`document.querySelector('[data-testid="tab-training"]')?.click()`);
 await sleep(2000);
 const label1 = await btn();
-const posNow = parsed ? parsed.themeIndex * parsed.count + parsed.done + 1 : NaN;
+const posNow = parsed ? parsed.themeIndex * 5 + parsed.done + 1 : NaN;
 ok(new RegExp(`Continue\\s*${posNow}\\s*\\/\\s*80`, "i").test(label1 ?? ""),
    `ITEM 5: after a reload the button offers to resume (want "Continue ${posNow} / 80", got ${JSON.stringify(label1)})`);
 ok((await counter()) === null, "ITEM 3: no live block after reload until you resume (counter absent)");
@@ -122,9 +132,11 @@ ok((await counter()) === null, "ITEM 3: no live block after reload until you res
 // Write the block the way advancing to 23 would have left it: count 5, so
 // themeIndex 4 + done 2 => 4*5+2+1 = 23. Then reload and resume.
 await ev(`(() => {
-  const b = JSON.parse(localStorage.getItem('puzzle_trainer_quickrun'));
-  b.themeIndex = 4; b.done = 2; b.savedAt = Date.now();
-  localStorage.setItem('puzzle_trainer_quickrun', JSON.stringify(b));
+  const s = JSON.parse(localStorage.getItem('puzzle_trainer_blocks'));
+  const i = s.blocks.findIndex((x) => x.id === s.selected);
+  s.blocks[i < 0 ? 0 : i].themeIndex = 4;
+  s.blocks[i < 0 ? 0 : i].done = 2;
+  localStorage.setItem('puzzle_trainer_blocks', JSON.stringify(s));
   localStorage.removeItem('__resume_probe');
 })()`);
 await send("Page.navigate", { url: "http://localhost:3000/?hv=" + Date.now() });
