@@ -53,6 +53,12 @@ interface ChessgroundWrapperProps {
   autoCastle?: boolean;
   autoPromoteToQueen?: boolean;
   blockTouchScroll?: boolean;
+  /**
+   * The "guiding dots": legal-move destination markers drawn when a piece is
+   * picked up (chessground's movable/premovable showDests). Default true —
+   * switching it off leaves the board completely bare.
+   */
+  showDests?: boolean;
 }
 
 export const ChessgroundWrapper = forwardRef<any, ChessgroundWrapperProps>(
@@ -78,6 +84,7 @@ export const ChessgroundWrapper = forwardRef<any, ChessgroundWrapperProps>(
       autoCastle = true,
       autoPromoteToQueen = true,
       blockTouchScroll = false,
+      showDests = true,
     },
     ref
   ) => {
@@ -85,6 +92,9 @@ export const ChessgroundWrapper = forwardRef<any, ChessgroundWrapperProps>(
     const groundRef = useRef<ReturnType<typeof Chessground> | null>(null);
     const configRef = useRef<CgConfig>({});
     const appliedClsRef = useRef<string[]>([]);
+    // Last value of `showDests` we pushed to the board, so we can tell a real
+    // flip from any other config update.
+    const prevDestsRef = useRef(showDests);
     const [, forceRerender] = useState(0);
 
     // Build config
@@ -127,7 +137,8 @@ export const ChessgroundWrapper = forwardRef<any, ChessgroundWrapperProps>(
           // jump to an illegal square. Must be explicitly disabled.
           free: false,
           dests: dests ?? new Map(),
-          showDests: true,
+          // The "guiding dots" — legal-move markers. Toggled from the board head.
+          showDests,
           events: {
             after: (orig: Key, dest: Key, metadata: MoveMetadata) => {
               if (onMove && !metadata.premove && !metadata.predrop) {
@@ -145,7 +156,7 @@ export const ChessgroundWrapper = forwardRef<any, ChessgroundWrapperProps>(
           // userMove), so a knight could "jump" to an illegal square. Premoves
           // are meaningless in a puzzle trainer.
           enabled: false,
-          showDests: true,
+          showDests,
           castle: autoCastle,
           events: {
             set: (orig: Key, dest: Key) => {
@@ -202,6 +213,7 @@ export const ChessgroundWrapper = forwardRef<any, ChessgroundWrapperProps>(
       autoCastle,
       autoPromoteToQueen,
       blockTouchScroll,
+      showDests,
     ]);
 
     // Keep the latest config available to the (stable) init effect.
@@ -227,6 +239,16 @@ export const ChessgroundWrapper = forwardRef<any, ChessgroundWrapperProps>(
     useEffect(() => {
       if (groundRef.current) {
         groundRef.current.set(buildConfig());
+        // OBSERVED, not assumed: flipping `showDests` through `set()` left the
+        // already-painted `move-dest` squares on the board (the classes survive
+        // because set() takes the animation path — our config always carries a
+        // fen — and the square-class pass is skipped when nothing has moved).
+        // The DOTS switch therefore appeared to do nothing until the next move.
+        // A full redraw when the flag actually changes makes it take effect now.
+        if (prevDestsRef.current !== showDests) {
+          prevDestsRef.current = showDests;
+          groundRef.current.redrawAll();
+        }
       }
       // Reflect the resolved options on the wrap element (handy for styling/tests).
       const el = containerRef.current;
@@ -239,8 +261,9 @@ export const ChessgroundWrapper = forwardRef<any, ChessgroundWrapperProps>(
         el.dataset.hlLast = String(!!highlightLastMove);
         el.dataset.hlCheck = String(!!highlightCheck);
         el.dataset.autoQueen = String(!!autoPromoteToQueen);
+        el.dataset.dests = String(!!showDests);
       }
-    }, [buildConfig, pieceSet, boardTheme, animation, pieceAnimation, highlightLastMove, highlightCheck, autoCastle, autoPromoteToQueen, blockTouchScroll]);
+    }, [buildConfig, pieceSet, boardTheme, animation, pieceAnimation, highlightLastMove, highlightCheck, autoCastle, autoPromoteToQueen, blockTouchScroll, showDests]);
 
     // Keep the piece-set / board-theme classes in sync when they change live.
     useEffect(() => {

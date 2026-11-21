@@ -817,6 +817,8 @@ function PuzzleDashboardPageInner() {
             // survives a reload and syncs phone <-> laptop. Default OFF.
             showTags={settings?.showTags ?? false}
             onToggleTags={() => updateSettings({ showTags: !(settings?.showTags ?? false) })}
+            showDots={settings?.showDots ?? true}
+            onToggleDots={() => updateSettings({ showDots: !(settings?.showDots ?? true) })}
             onComplete={(attempt) => {
               // Replay = pure practice: no SM-2, no rating, no history entry.
               if (!practiceRef.current) handlePuzzleComplete(attempt);

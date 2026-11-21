@@ -91,6 +91,10 @@ export interface UserSettings {
   // switch in the head writes this. Default OFF: tags name the motif, so showing
   // them before you solve is a hint. Absent on older saved state, hence optional.
   showTags?: boolean;
+  // Guiding dots: the legal-move markers chessground draws when you pick a piece
+  // up. The DOTS switch in the board head writes this. Default ON — it is how the
+  // board has always behaved, so the default changes nothing for an existing user.
+  showDots?: boolean;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -108,6 +112,7 @@ export const DEFAULT_SETTINGS: Omit<UserSettings, 'userId' | 'createdAt' | 'upda
   totalFailed: 0,
   puzzleTimerSeconds: 0,
   showTags: false,
+  showDots: true,
 };
 
 // Puzzle attempt result. 'hard' = the user pressed HARD on a solved puzzle

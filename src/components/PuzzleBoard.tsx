@@ -91,6 +91,9 @@ interface PuzzleBoardProps {
    */
   showTags?: boolean;
   onToggleTags?: () => void;
+  /** Guiding dots: the legal-move markers on the board. Default ON. */
+  showDots?: boolean;
+  onToggleDots?: () => void;
 }
 
 interface Snapshot {
@@ -114,6 +117,8 @@ export function PuzzleBoard({
   onReplayAt,
   showTags = false,
   onToggleTags,
+  showDots = true,
+  onToggleDots,
 }: PuzzleBoardProps) {
   const theme = useTheme();
   const isWide = useIsWideScreen();
@@ -777,19 +782,38 @@ export function PuzzleBoard({
                 auto pushes it there), so it never costs a row of its own. ON is
                 green and reads "TAGS"; OFF is red and reads "OFF". The choice is
                 persisted in settings — see onToggleTags. */}
-            <button
-              type="button"
-              className="tag-toggle"
-              data-testid="tags-toggle"
-              data-on={showTags ? "true" : "false"}
-              aria-pressed={showTags}
-              aria-label={showTags ? "Hide puzzle tags" : "Show puzzle tags"}
-              title={showTags ? "Hide puzzle tags" : "Show puzzle tags"}
-              onClick={onToggleTags}
-            >
-              <span className="tag-toggle__knob" aria-hidden="true" />
-              <span className="tag-toggle__label">{showTags ? "TAGS" : "OFF"}</span>
-            </button>
+            {/* The two switches share one right-aligned column: TAGS on top, DOTS
+                below it ("add another button below the tags button"). ON is green
+                and reads the feature's name; OFF is red and reads "OFF", exactly
+                like TAGS. Both choices persist in settings. */}
+            <div className="board-panel__toggles">
+              <button
+                type="button"
+                className="tag-toggle"
+                data-testid="tags-toggle"
+                data-on={showTags ? "true" : "false"}
+                aria-pressed={showTags}
+                aria-label={showTags ? "Hide puzzle tags" : "Show puzzle tags"}
+                title={showTags ? "Hide puzzle tags" : "Show puzzle tags"}
+                onClick={onToggleTags}
+              >
+                <span className="tag-toggle__knob" aria-hidden="true" />
+                <span className="tag-toggle__label">{showTags ? "TAGS" : "OFF"}</span>
+              </button>
+              <button
+                type="button"
+                className="tag-toggle"
+                data-testid="dots-toggle"
+                data-on={showDots ? "true" : "false"}
+                aria-pressed={showDots}
+                aria-label={showDots ? "Hide legal-move dots" : "Show legal-move dots"}
+                title={showDots ? "Hide legal-move dots" : "Show legal-move dots"}
+                onClick={onToggleDots}
+              >
+                <span className="tag-toggle__knob" aria-hidden="true" />
+                <span className="tag-toggle__label">{showDots ? "DOTS" : "OFF"}</span>
+              </button>
+            </div>
             {/* Themes — ALL of them, while solving and after, but only when the
                 TAGS switch is on. This is the group that wraps: it takes the full
                 width under the ratings and flows left-to-right, so nothing is
@@ -835,6 +859,7 @@ export function PuzzleBoard({
           highlightLastMove={highlightLastMove}
           highlightCheck={highlightCheck}
           autoCastle={autoCastle}
+          showDests={showDots}
           autoPromoteToQueen={autoPromoteToQueen}
           blockTouchScroll={blockTouchScroll}
         />

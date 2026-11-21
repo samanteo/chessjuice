@@ -576,6 +576,18 @@ body {
   transition: background 0.18s ease, border-color 0.18s ease;
   -webkit-tap-highlight-color: transparent;
 }
+/* The switch column: TAGS on top, DOTS under it, right-aligned in the meta row.
+   The left auto-margin lives on the WRAPPER (not on .tag-toggle) so the pair
+   moves together as one block and the ratings never get pushed off-screen. */
+.board-panel__toggles {
+  margin-left: auto;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.25rem;
+  flex: 0 0 auto;
+}
+.board-panel__toggles .tag-toggle { margin-left: 0; }
 .tag-toggle[data-on="true"] {
   background: #15803d;
   border-color: #22c55e;
